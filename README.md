@@ -4,14 +4,40 @@ TRS-80 Empire game using ncurses.
 
 This fork is heavily refactored from the original C codebase, migrated to C++17, and extended with CPU opponents, a difficulty system, and numerous gameplay and UI improvements.
 
+## Prerequisites
+
+- A C++17 compiler (`g++` or `clang++`)
+- ncurses development library
+- Math library (`libm`, typically included by default)
+
+### Installing ncurses
+
+**macOS** (included with Xcode Command Line Tools):
+```
+xcode-select --install
+```
+
+**Debian / Ubuntu**:
+```
+sudo apt install libncurses-dev
+```
+
+**Fedora / RHEL**:
+```
+sudo dnf install ncurses-devel
+```
+
+**Arch Linux**:
+```
+sudo pacman -S ncurses
+```
+
 ## Building
 
 ```
 make
 ./empire
 ```
-
-Requires `g++` (C++17), `ncurses`, and `libm`.
 
 ## Architecture
 
