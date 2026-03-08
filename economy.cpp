@@ -201,17 +201,29 @@ DeathCause CheckPlayerDeath(Player *aPlayer)
 {
     DeathCause cause = DEATH_NONE;
 
-    /* Starvation assassination. */
-    if ((aPlayer->diedStarvation > 0) &&
-        (RandRange(aPlayer->diedStarvation) > RandRange(110)))
+    /*
+     * Starvation assassination — probability proportional to the percentage
+     * of population that starved.  If 10% starved, ~10% chance of
+     * assassination.  Roll 1..100; if it lands at or below the starvation
+     * percentage, the ruler is assassinated.
+     */
+    if (aPlayer->diedStarvation > 0)
     {
-        aPlayer->dead = true;
-        cause = DEATH_STARVATION;
-        GameLog("  *** ASSASSINATED (starvation) ***\n");
+        int population = aPlayer->serfCount + aPlayer->merchantCount
+                         + aPlayer->nobleCount;
+        if (population < 1) population = 1;
+        int starvePct = (100 * aPlayer->diedStarvation) / population;
+        if (starvePct > 0 && RandRange(100) <= starvePct)
+        {
+            aPlayer->dead = true;
+            cause = DEATH_STARVATION;
+            GameLog("  *** ASSASSINATED (starvation: %d died, %d%% of pop) ***\n",
+                    aPlayer->diedStarvation, starvePct);
+        }
     }
 
-    /* Random death (checked independently, may override starvation). */
-    if (RandRange(100) == 1)
+    /* Random death — 0.25% chance per year (1 in 400). */
+    if (RandRange(400) == 1)
     {
         aPlayer->dead = true;
         cause = DEATH_RANDOM;
