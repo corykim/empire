@@ -20,14 +20,15 @@ Requires: `g++` (C++17), `ncurses`, `libm`.
 | File | Purpose |
 |------|---------|
 | `empire.h` | All shared types (Country, Player, Battle), globals, macros, prototypes |
-| `cpu_strategy.h` | CPUStrategy abstract base class + 5 derived classes |
+| `economy.h` / `economy.cpp` | Centralized economic rules: all formulas for grain, population, revenue, purchases, trading. Single source of truth for investment costs. |
+| `cpu_strategy.h` | CPUStrategy abstract base class + 5 derived classes. Each has `errorPct` for decision quality. |
 | `ui.h` / `ui.cpp` | UI helper library: colors, dynamic sizing, screen templates, separators, column formatting |
 | `empire.cpp` | Main loop, setup screens, CPU economic phases, ShowMessage, FmtNum, ParseNum |
-| `cpu.cpp` | Strategy class implementations (target selection, troops, investments, taxes) |
+| `cpu.cpp` | Strategy class implementations (target selection, troops, investments, taxes, grain trading) |
 | `attack.cpp` | Human/CPU attack screens, battle engine (RunBattle, InitBattle, etc.) |
-| `grain.cpp` | Grain harvest, trading, feeding |
-| `investments.cpp` | Revenue computation, tax setting, investment purchasing |
-| `population.cpp` | Births, deaths, immigration, army efficiency |
+| `grain.cpp` | Grain screen UI: harvest display, trading prompts, feeding prompts |
+| `investments.cpp` | Investments screen UI: tax setting prompts, purchase prompts |
+| `population.cpp` | Population screen UI: births, deaths, immigration display |
 | `grain.h` / `population.h` | Prototypes for GrainScreen / PopulationScreen |
 
 ### UI System (`ui.h` / `ui.cpp`)
@@ -67,7 +68,7 @@ The game uses the full terminal (dynamic `winrows` x `wincols`). Content flows f
 
 - **Fair economics**: CPU players run through identical formulas as humans (grain, population, investments). No hidden bonuses.
 - **Strategy pattern**: `CPUStrategy` is an abstract C++ class. Five concrete subclasses implement `selectTarget()`, `chooseSoldiersToSend()`, `manageInvestments()`, `manageTaxes()`. Difficulty only affects decisions, not outcomes.
-- **Investment waste**: The only parameter varying between difficulty levels for investments is `wastePct` (50% → 0%), passed to the shared `cpuInvest()` base class method.
+- **Error rate system**: Each difficulty has `errorPct` (50% → 5%). The `deviate(optimal, maxVal)` helper applies random error to taxes, investments, and grain trading. Investment waste budget = `errorPct`% of treasury.
 - **`ShowMessage(fmt, ...)`**: Printf-style function that prints, refreshes, and delays proportional to word count (200ms/word, min DELAY_TIME). Use this instead of `printw()` + `refresh()` + `usleep()` for any message the player needs to read.
 - **`CLEAR_MSG_AREA()`**: Macro that clears rows 14-15 and positions cursor at row 14. Used before every prompt or error.
 - **`RandRange(n)`**: Returns 1..n (1-based, not 0-based). Returns 0 if n <= 0.
@@ -80,8 +81,8 @@ Defined as `constexpr int` in `empire.h`:
 - `DELAY_TIME = 2000000` (2 seconds, in microseconds)
 - `SERF_EFFICIENCY = 5`
 
-Investment costs in `cpu_strategy.h` and `investments.cpp`:
-- Marketplace=1000, Grain mill=2000, Foundry=7000, Shipyard=8000, Soldier=8, Palace=5000
+Investment costs defined as `constexpr` in `economy.h` (single source of truth):
+- `COST_MARKETPLACE`=1000, `COST_GRAIN_MILL`=2000, `COST_FOUNDRY`=7000, `COST_SHIPYARD`=8000, `COST_SOLDIER`=8, `COST_PALACE`=5000
 
 ## Conventions
 
@@ -112,12 +113,21 @@ Investment costs in `cpu_strategy.h` and `investments.cpp`:
 
 ## User Preferences
 
-- No hidden CPU bonuses — all economic formulas must be identical for human and CPU
+- No hidden CPU bonuses — all economic formulas must be centralized in `economy.h`/`economy.cpp` so CPU and human use identical code paths
 - Fog of war is intentional — don't show enemy soldier counts on attack screen
 - Combat delay: mathematical curves only (`37.5ms * sqrt(smaller_force)`), recalculated each round
 - Message delays scale by word count via `ShowMessage()`, never below DELAY_TIME (2s)
-- Grain feeding defaults to required amount on empty ENTER; only confirm if army feed > 2x need or people feed > 4x need
+- Grain feeding defaults to required amount on empty ENTER; only confirm if excess > 2x army need or 4x people need AND absolute difference > 10 bushels
 - Soldier purchase caps should explain the limiting factor (nobles, foundries, serfs, treasury)
+- Purchase prompts should show the maximum affordable/available amount
 - Prefer clean code patterns: strategy pattern, no switch-on-difficulty, no duplicated strings
 - Use generalized UI helpers (UITitle, UISeparator) rather than hand-coded layout per screen
+- Consistent screen templates: every screen uses `UITitle()`, `UISeparator()` before prompts, `<Enter>?` for continuation
+- No abbreviations in user-facing text — spell out "nobles", "soldiers", "merchants", "serfs", "palace"
+- No graphs, bars, or visual charts unless explicitly requested
+- Dead players' turns must end immediately — no investments or attacks after death
+- When a ruler dies (any cause), always show a notification screen with Enter prompt
+- CPU players should actively trade grain (buy when starving, sell surplus, sell land when broke) — not just hoard
+- Always update README and other docs when changing functionality or design
 - Always gitignore log files and build artifacts
+- `FmtNum()` has only 4 rotating buffers — never exceed 4 calls per single `printw()`
