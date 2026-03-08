@@ -300,6 +300,8 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
     {
         aPlayer->serfCount += aTargetPlayer->serfCount;
         aTargetPlayer->dead = true;
+        aTargetPlayer->grainForSale = 0;
+        aTargetPlayer->grainPrice = 0.0;
     }
 }
 

@@ -218,6 +218,13 @@ DeathCause CheckPlayerDeath(Player *aPlayer)
         GameLog("  *** DIED (random event) ***\n");
     }
 
+    /* Remove grain from market when a player dies. */
+    if (aPlayer->dead)
+    {
+        aPlayer->grainForSale = 0;
+        aPlayer->grainPrice = 0.0;
+    }
+
     return cause;
 }
 
