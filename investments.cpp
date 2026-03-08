@@ -20,6 +20,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "economy.h"
 #include "ui.h"
 
 
@@ -35,8 +36,6 @@
 static void DrawInvestmentsScreen(Player *aPlayer);
 
 static void DisplayInvestments(Player *aPlayer);
-
-void ComputeRevenues(Player *aPlayer);
 
 
 /*
@@ -95,12 +94,13 @@ static bool ValidateInvestment(Player *aPlayer,
 
 
 /*
- * Investment cost list.
+ * Investment cost list — uses constants from economy.h.
  */
 
-int investmentCost[] =
+static const int investmentCost[] =
 {
-    1000, 2000, 7000, 8000, 8, 5000,
+    COST_MARKETPLACE, COST_GRAIN_MILL, COST_FOUNDRY,
+    COST_SHIPYARD, COST_SOLDIER, COST_PALACE,
 };
 
 
@@ -159,7 +159,9 @@ static void DrawInvestmentsScreen(Player *aPlayer)
     UISeparator();
 
     /* Investment table. */
+    UIColor(UIC_HEADING);
     printw("                 Count    Revenue     Cost\n");
+    UIColorOff();
     printw("1) Marketplaces  %5s    %7s     1,000\n",
            FmtNum(aPlayer->marketplaceCount), FmtNum(aPlayer->marketplaceRevenue));
     printw("2) Grain Mills   %5s    %7s     2,000\n",
@@ -185,8 +187,10 @@ static void DrawInvestmentsScreen(Player *aPlayer)
 void DisplayInvestments(Player *aPlayer)
 {
     /* Display investments. */
-    printw("----------------------------------------------------------------\n");
+    UISeparator();
+    UIColor(UIC_HEADING);
     printw("                 Count    Revenue     Cost\n");
+    UIColorOff();
     printw("1) Marketplaces  %5s    %7s     1,000\n",
            FmtNum(aPlayer->marketplaceCount), FmtNum(aPlayer->marketplaceRevenue));
     printw("2) Grain Mills   %5s    %7s     2,000\n",
@@ -199,97 +203,7 @@ void DisplayInvestments(Player *aPlayer)
            FmtNum(aPlayer->soldierCount), FmtNum(aPlayer->soldierRevenue));
     printw("6) Palace        %5d%%              5,000\n",
            10 * aPlayer->palaceCount);
-    printw("----------------------------------------------------------------\n");
-}
-
-
-/*
- * Compute revenues for the player specified by aPlayer.
- *
- *   aPlayer                Player.
- */
-
-void ComputeRevenues(Player *aPlayer)
-{
-    int  marketplaceRevenue;
-    int  grainMillRevenue;
-    int  foundryRevenue;
-    int  shipyardRevenue;
-    int  salesTaxRevenue;
-    int  incomeTaxRevenue;
-
-    /* Determine marketplace revenue. */
-    marketplaceRevenue =
-          (  12
-           * (aPlayer->merchantCount + RandRange(35) + RandRange(35))
-           / (aPlayer->salesTax + 1))
-        + 5;
-    marketplaceRevenue = aPlayer->marketplaceCount * marketplaceRevenue;
-    aPlayer->marketplaceRevenue = pow(marketplaceRevenue, 0.9);
-
-    /* Determine grain mill revenue. */
-    grainMillRevenue = 
-          static_cast<int>(5.8 * static_cast<float>(aPlayer->grainHarvest + RandRange(250)))
-        / (20*aPlayer->incomeTax + 40*aPlayer->salesTax + 150);
-    grainMillRevenue = aPlayer->grainMillCount * grainMillRevenue;
-    aPlayer->grainMillRevenue = pow(grainMillRevenue, 0.9);
-
-    /* Determine the foundry revenue. */
-    foundryRevenue = aPlayer->soldierCount + RandRange(150) + 400;
-    foundryRevenue = aPlayer->foundryCount * foundryRevenue;
-    foundryRevenue = pow(foundryRevenue, 0.9);
-
-    /* Determine the shipyard revenue. */
-    shipyardRevenue =
-        (  4*aPlayer->merchantCount
-         + 9*aPlayer->marketplaceCount
-         + 15*aPlayer->foundryCount);
-    shipyardRevenue = aPlayer->shipyardCount * shipyardRevenue * weather;
-    shipyardRevenue = pow(shipyardRevenue, 0.9);
-
-    /* Determine the army revenue. */
-    aPlayer->soldierRevenue = -8 * aPlayer->soldierCount;
-
-    /* Determine customs tax revenue. */
-    aPlayer->customsTaxRevenue =   aPlayer->customsTax
-                                 * aPlayer->immigrated
-                                 * (RandRange(40) + RandRange(40))
-                                 / 100;
-
-    /* Determine sales tax revenue. */
-    salesTaxRevenue =
-        (  static_cast<int>(1.8 * static_cast<float>(aPlayer->merchantCount))
-         + 33*aPlayer->marketplaceRevenue
-         + 17*aPlayer->grainMillRevenue
-         + 50*aPlayer->foundryRevenue
-         + 70*aPlayer->shipyardRevenue);
-    salesTaxRevenue = pow(salesTaxRevenue, 0.85);
-    aPlayer->salesTaxRevenue =
-          aPlayer->salesTax
-        * (salesTaxRevenue + 5*aPlayer->nobleCount + aPlayer->serfCount)
-        / 100;
-
-    /* Determine income tax revenue. */
-    incomeTaxRevenue =
-          static_cast<int>(1.3 * static_cast<float>(aPlayer->serfCount))
-        + 145*aPlayer->nobleCount
-        + 39*aPlayer->merchantCount
-        + 99*aPlayer->marketplaceCount
-        + 99*aPlayer->grainMillCount
-        + 425*aPlayer->foundryCount
-        + 965*aPlayer->shipyardCount;
-    incomeTaxRevenue = aPlayer->incomeTax * incomeTaxRevenue / 100;
-    aPlayer->incomeTaxRevenue = pow(incomeTaxRevenue, 0.97);
-
-    /* Update treasury. */
-    aPlayer->treasury +=   aPlayer->customsTaxRevenue
-                         + aPlayer->salesTaxRevenue
-                         + aPlayer->incomeTaxRevenue
-                         + aPlayer->marketplaceRevenue
-                         + aPlayer->grainMillRevenue
-                         + aPlayer->foundryRevenue
-                         + aPlayer->shipyardRevenue
-                         + aPlayer->soldierRevenue;
+    UISeparator();
 }
 
 
@@ -371,6 +285,7 @@ void SetCustomsTax(Player *aPlayer)
             validCustomsTax = true;
     } while (!validCustomsTax);
     aPlayer->customsTax = customsTax;
+    GameLog("  Set customs tax: %d%%\n", customsTax);
 }
 
 
@@ -398,6 +313,7 @@ void SetSalesTax(Player *aPlayer)
             validSalesTax = true;
     } while (!validSalesTax);
     aPlayer->salesTax = salesTax;
+    GameLog("  Set sales tax: %d%%\n", salesTax);
 }
 
 
@@ -425,6 +341,7 @@ void SetIncomeTax(Player *aPlayer)
             validIncomeTax = true;
     } while (!validIncomeTax);
     aPlayer->incomeTax = incomeTax;
+    GameLog("  Set income tax: %d%%\n", incomeTax);
 }
 
 
@@ -442,15 +359,17 @@ void DisplayTaxRevenues(Player *aPlayer)
     country = aPlayer->country;
 
     /* Display tax revenues. */
+    UIColor(UIC_HEADING);
     printw("%-21s %-21s %s\n",
            "Customs Duty", "Sales Tax", "Income Tax");
+    UIColorOff();
     printw("%20d%% %20d%% %20d%%\n",
            aPlayer->customsTax, aPlayer->salesTax, aPlayer->incomeTax);
     printw("%21s %21s %21s\n",
            FmtNum(aPlayer->customsTaxRevenue),
            FmtNum(aPlayer->salesTaxRevenue),
            FmtNum(aPlayer->incomeTaxRevenue));
-    printw("----------------------------------------------------------------\n");
+    UISeparator();
 }
 
 
@@ -479,7 +398,6 @@ void BuyInvestments(Player *aPlayer)
 
         /* Get investment to buy. */
         CLEAR_MSG_AREA();
-        printw("----------------------------------------------------------------\n");
         printw("Buy which investment (0 to skip)? ");
         getnstr(input, sizeof(input));
 
@@ -530,7 +448,6 @@ void BuyInvestments(Player *aPlayer)
 void BuyMarketplaces(Player *aPlayer)
 {
     char     input[80];
-    int      newMerchantCount;
     int      marketplaceCount;
     bool     validMarketplaceCount;
 
@@ -550,17 +467,14 @@ void BuyMarketplaces(Player *aPlayer)
                                                    marketplaceCount);
     } while (!validMarketplaceCount);
 
-    /* Update marketplace count and treasury. */
-    aPlayer->marketplaceCount += marketplaceCount;
-    aPlayer->treasury -= marketplaceCount * 1000;
+    /* Purchase using shared function. */
+    int bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
+                                    marketplaceCount, COST_MARKETPLACE);
+    GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
+            bought, bought * COST_MARKETPLACE, aPlayer->treasury);
 
-    /*
-     * Merchants are gained with every marketplace purchase, even if none are
-     * purchased.
-     */
-    newMerchantCount = RandRange(7);
-    aPlayer->merchantCount += newMerchantCount;
-    aPlayer->serfCount -= newMerchantCount;
+    /* Merchants gained with every marketplace purchase action. */
+    ApplyMarketplaceBonus(aPlayer);
 }
 
 
@@ -592,9 +506,10 @@ void BuyGrainMills(Player *aPlayer)
                                                  grainMillCount);
     } while (!validGrainMillCount);
 
-    /* Update grain mill count and treasury. */
-    aPlayer->grainMillCount += grainMillCount;
-    aPlayer->treasury -= grainMillCount * 2000;
+    int bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
+                                    grainMillCount, COST_GRAIN_MILL);
+    GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
+            bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
 }
 
 
@@ -626,9 +541,10 @@ void BuyFoundries(Player *aPlayer)
                                                foundryCount);
     } while (!validFoundryCount);
 
-    /* Update foundry count and treasury. */
-    aPlayer->foundryCount += foundryCount;
-    aPlayer->treasury -= foundryCount * 7000;
+    int bought = PurchaseInvestment(aPlayer, &aPlayer->foundryCount,
+                                    foundryCount, COST_FOUNDRY);
+    GameLog("  Bought %d foundries (-%d)  Treasury: %d\n",
+            bought, bought * COST_FOUNDRY, aPlayer->treasury);
 }
 
 
@@ -660,9 +576,10 @@ void BuyShipyards(Player *aPlayer)
                                                 shipyardCount);
     } while (!validShipyardCount);
 
-    /* Update shipyard count and treasury. */
-    aPlayer->shipyardCount += shipyardCount;
-    aPlayer->treasury -= shipyardCount * 8000;
+    int bought = PurchaseInvestment(aPlayer, &aPlayer->shipyardCount,
+                                    shipyardCount, COST_SHIPYARD);
+    GameLog("  Bought %d shipyards (-%d)  Treasury: %d\n",
+            bought, bought * COST_SHIPYARD, aPlayer->treasury);
 }
 
 
@@ -685,53 +602,47 @@ void BuySoldiers(Player *aPlayer)
     if (soldierCount <= 0)
         return;
 
-    /*
-     * Cap the soldier count to the maximum the player can afford, train,
-     * equip, and lead.
-     */
+    /* Use shared soldier cap computation. */
+    SoldierCap cap = ComputeSoldierCap(aPlayer);
+    if (soldierCount > cap.maxSoldiers)
     {
-        int totalPeople =   aPlayer->serfCount
-                          + aPlayer->merchantCount
-                          + aPlayer->nobleCount;
-        float equipRatio = 0.05 + 0.015 * aPlayer->foundryCount;
-        int maxEquip = MAX(0, static_cast<int>(equipRatio * totalPeople)
-                              - aPlayer->soldierCount);
-        int maxNobles = MAX(0, (20 * aPlayer->nobleCount)
-                               - aPlayer->soldierCount);
-        int maxSoldiers = MIN(MIN(aPlayer->treasury / 8, aPlayer->serfCount),
-                              MIN(maxEquip, maxNobles));
-
-        if (soldierCount > maxSoldiers)
+        soldierCount = cap.maxSoldiers;
+        CLEAR_MSG_AREA();
+        switch (cap.limiter)
         {
-            soldierCount = maxSoldiers;
-            CLEAR_MSG_AREA();
-            if (maxSoldiers == maxNobles)
+            case SoldierCap::NOBLES:
                 ShowMessage("Limited by nobles (%s lead up to %s troops).\n"
                             "You can recruit %s soldiers.",
-                            FmtNum(aPlayer->nobleCount), FmtNum(20 * aPlayer->nobleCount),
+                            FmtNum(aPlayer->nobleCount),
+                            FmtNum(20 * aPlayer->nobleCount),
                             FmtNum(soldierCount));
-            else if (maxSoldiers == maxEquip)
-                ShowMessage("Limited by foundries (%s). Build more to equip troops.\n"
-                            "You can recruit %s soldiers.",
-                            FmtNum(aPlayer->foundryCount), FmtNum(soldierCount));
-            else if (maxSoldiers == aPlayer->serfCount)
+                break;
+            case SoldierCap::FOUNDRIES:
+                ShowMessage("Limited by foundries (%s). Build more to equip "
+                            "troops.\nYou can recruit %s soldiers.",
+                            FmtNum(aPlayer->foundryCount),
+                            FmtNum(soldierCount));
+                break;
+            case SoldierCap::SERFS:
                 ShowMessage("Limited by serfs (%s available to train).\n"
                             "You can recruit %s soldiers.",
-                            FmtNum(aPlayer->serfCount), FmtNum(soldierCount));
-            else
+                            FmtNum(aPlayer->serfCount),
+                            FmtNum(soldierCount));
+                break;
+            case SoldierCap::TREASURY:
                 ShowMessage("Limited by treasury (%s %s).\n"
                             "You can recruit %s soldiers.",
-                            FmtNum(aPlayer->treasury), aPlayer->country->currency,
+                            FmtNum(aPlayer->treasury),
+                            aPlayer->country->currency,
                             FmtNum(soldierCount));
+                break;
         }
     }
     if (soldierCount <= 0)
         return;
 
-    /* Update soldier count and treasury. */
-    aPlayer->soldierCount += soldierCount;
-    aPlayer->serfCount -= soldierCount;
-    aPlayer->treasury -= soldierCount * 8;
+    /* Purchase using shared function. */
+    PurchaseSoldiers(aPlayer, soldierCount);
 }
 
 
@@ -764,17 +675,14 @@ void BuyPalaces(Player *aPlayer)
                                               palaceCount);
     } while (!validPalaceCount);
 
-    /* Update palace count and treasury. */
-    aPlayer->palaceCount += palaceCount;
-    aPlayer->treasury -= palaceCount * 5000;
+    /* Purchase using shared function. */
+    int bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
+                                    palaceCount, COST_PALACE);
+    GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
+            bought, bought * COST_PALACE, aPlayer->treasury);
 
-    /*
-     * Nobles are gained with every palace purchase, even if none are
-     * purchased.
-     */
-    newNobleCount = RandRange(4);
-    aPlayer->nobleCount += newNobleCount;
-    aPlayer->serfCount -= newNobleCount;
+    /* Nobles gained with every palace purchase action. */
+    ApplyPalaceBonus(aPlayer);
 }
 
 

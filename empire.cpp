@@ -24,6 +24,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "economy.h"
 #include "cpu_strategy.h"
 #include "grain.h"
 #include "population.h"
@@ -163,6 +164,7 @@ int weather;
 int barbarianLand = 6000;
 int gameOver = false;
 int difficulty = 2;
+bool omniscient = false;
 
 
 /*------------------------------------------------------------------------------
@@ -175,12 +177,23 @@ int main(int argc, char *argv[])
     Player *player;
     int     i, j;
 
-    /* Initialize the screen. */
-    initscr();
+    /* Parse command-line arguments. */
+    for (int a = 1; a < argc; a++)
+    {
+        if (strcmp(argv[a], "--omniscient") == 0 ||
+            strcmp(argv[a], "-o") == 0)
+        {
+            omniscient = true;
+        }
+        if (strcmp(argv[a], "--log") == 0 ||
+            strcmp(argv[a], "-l") == 0)
+        {
+            logging = true;
+        }
+    }
 
-    /* Resize the window to 16x64 and set it to scroll. */
-    wresize(stdscr, 16, 64);
-    scrollok(stdscr, true);
+    /* Initialize the screen, colors, and terminal size. */
+    UIInit();
 
     /* Seed the random number generator. */
     srand(time(nullptr));
@@ -253,9 +266,9 @@ int main(int argc, char *argv[])
                 if (humansAlive == 1 && cpuAlive == 0 && lastHuman != nullptr)
                 {
                     char input[80];
-                    clear();
-                    move(0, 0);
-                    printw("All rival nations have fallen!\n\n");
+                    UITitle("Victory!");
+                    UIColor(UIC_GOOD);
+                    printw("\nAll rival nations have fallen!\n\n");
                     printw("%s %s of %s has conquered the known world!\n\n",
                            lastHuman->title,
                            lastHuman->name,
@@ -263,6 +276,7 @@ int main(int argc, char *argv[])
                     printw("Long live %s %s!\n\n",
                            lastHuman->title,
                            lastHuman->name);
+                    UIColorOff();
                     printw("<Enter>? ");
                     getnstr(input, sizeof(input));
                     gameOver = true;
@@ -422,14 +436,15 @@ void ShowMessage(const char *fmt, ...)
 
 static void StartScreen()
 {
-    /* Clear screen. */
+    /* Update terminal size and clear screen. */
+    getmaxyx(stdscr, winrows, wincols);
     clear();
 
-    /* Display splash screen. */
-    move(0, 20);
-    printw("E M P I R E\n");
-    move(7, 0);
-    printw("(Always hit <Enter> to continue)");
+    /* Display splash screen centered on the terminal. */
+    UIColor(UIC_TITLE);
+    mvprintw(winrows / 3, (wincols - 11) / 2, "E M P I R E");
+    UIColorOff();
+    mvprintw(winrows / 2, (wincols - 32) / 2, "(Always hit <Enter> to continue)");
     refresh();
 
     /* Delay. */
@@ -587,8 +602,10 @@ static void SummaryScreen()
     int      i;
 
     UITitle("Summary");
+    UIColor(UIC_HEADING);
     printw("Nobles   Soldiers   Merchants   Serfs    Land    Palace\n");
     printw("------   --------   ---------   ------   ------  ------\n");
+    UIColorOff();
     for (i = 0; i < COUNTRY_COUNT; i++)
     {
         /* Get the country and player records. */
@@ -626,10 +643,19 @@ static void PlayHuman(Player *aPlayer)
 {
     int i;
 
+    GameLog("\n================================================================"
+            "================\n");
+    GameLog("Year %d -- %s (%s %s) [HUMAN]\n", year, aPlayer->country->name,
+            aPlayer->title, aPlayer->name);
+    GameLog("================================================================"
+            "================\n");
+
     /* Show grain screen. */
+    GameLog("--- Grain Phase ---\n");
     GrainScreen(aPlayer);
 
     /* Show population screen. */
+    GameLog("--- Population Phase ---\n");
     PopulationScreen(aPlayer);
 
     /* If all human players have died, end game. */
@@ -645,9 +671,11 @@ static void PlayHuman(Player *aPlayer)
     }
 
     /* Show investments screen. */
+    GameLog("--- Investments Phase ---\n");
     InvestmentsScreen(aPlayer);
 
     /* Show attack screen. */
+    GameLog("--- Attack Phase ---\n");
     AttackScreen(aPlayer);
 }
 
@@ -658,6 +686,8 @@ static void PlayHuman(Player *aPlayer)
  *   aPlayer                CPU player.
  */
 
+static void OmniscientScreen(Player *aPlayer);
+
 static void PlayCPU(Player *aPlayer)
 {
     /* Reset screen. */
@@ -665,6 +695,12 @@ static void PlayCPU(Player *aPlayer)
     move(0, 0);
 
     /* Announce player's turn. */
+    GameLog("\n================================================================"
+            "================\n");
+    GameLog("Year %d -- %s (%s %s) [CPU]\n", year, aPlayer->country->name,
+            aPlayer->title, aPlayer->name);
+    GameLog("================================================================"
+            "================\n");
     ShowMessage("One moment -- %s %s's turn . . .", aPlayer->title,
                 aPlayer->name);
 
@@ -675,17 +711,21 @@ static void PlayCPU(Player *aPlayer)
      * identical to the human path.
      */
 
-    /* --- Grain phase (same as GrainScreen minus UI) --- */
+    GameLog("--- Grain Phase ---\n");
     CPUGrainPhase(aPlayer);
 
-    /* --- Population phase (same as PopulationScreen minus UI) --- */
+    GameLog("--- Population Phase ---\n");
     CPUPopulationPhase(aPlayer);
 
-    /* --- Investments phase (same as InvestmentsScreen minus UI) --- */
+    GameLog("--- Investments Phase ---\n");
     CPUInvestmentsPhase(aPlayer);
 
-    /* --- Attack phase --- */
+    GameLog("--- Attack Phase ---\n");
     CPUAttackScreen(aPlayer);
+
+    /* Show full economy in omniscient mode. */
+    if (omniscient && !aPlayer->dead)
+        OmniscientScreen(aPlayer);
 }
 
 
@@ -698,48 +738,32 @@ static void PlayCPU(Player *aPlayer)
 
 static void CPUGrainPhase(Player *aPlayer)
 {
-    int usableLand;
+    /* Shared grain computation (rats, harvest, needs). */
+    ComputeGrainPhase(aPlayer);
 
-    /* Rats eat grain (same formula as human). */
-    aPlayer->ratPct = RandRange(30);
-    aPlayer->grain -= (aPlayer->grain * aPlayer->ratPct) / 100;
-
-    /* Determine usable land (same formula as human). */
-    usableLand =   aPlayer->land
-                 - aPlayer->serfCount
-                 - (2 * aPlayer->nobleCount)
-                 - aPlayer->palaceCount
-                 - aPlayer->merchantCount
-                 - (2 * aPlayer->soldierCount);
-    if (usableLand > (3 * aPlayer->grain))
-        usableLand = 3 * aPlayer->grain;
-    if (usableLand > (5 * aPlayer->serfCount))
-        usableLand = 5 * aPlayer->serfCount;
-
-    /* Harvest (same formula as human). */
-    aPlayer->grainHarvest =   (weather * usableLand * 0.72)
-                            + RandRange(500)
-                            - (aPlayer->foundryCount * 500);
-    if (aPlayer->grainHarvest < 0)
-        aPlayer->grainHarvest = 0;
-    aPlayer->grain += aPlayer->grainHarvest;
-
-    /* Compute grain needs (same formula as human). */
-    aPlayer->peopleGrainNeed = 5 * (  aPlayer->serfCount
-                                    + aPlayer->merchantCount
-                                    + (3 * aPlayer->nobleCount));
-    aPlayer->armyGrainNeed = 8 * aPlayer->soldierCount;
-
-    /* CPU feeds army and people at the required amount. */
-    aPlayer->armyGrainFeed = aPlayer->armyGrainNeed;
-    if (aPlayer->armyGrainFeed > aPlayer->grain)
-        aPlayer->armyGrainFeed = aPlayer->grain;
+    /* CPU feeds army at the required amount. */
+    aPlayer->armyGrainFeed = MIN(aPlayer->armyGrainNeed, aPlayer->grain);
     aPlayer->grain -= aPlayer->armyGrainFeed;
 
-    aPlayer->peopleGrainFeed = aPlayer->peopleGrainNeed;
-    if (aPlayer->peopleGrainFeed > aPlayer->grain)
-        aPlayer->peopleGrainFeed = aPlayer->grain;
+    /*
+     * CPU feeds people above the required amount when surplus allows,
+     * to attract immigrants.  Immigration requires feed > 1.5x need,
+     * so optimal is ~190%.  Lower difficulty deviates more from optimal.
+     */
+    int optimalOverfeed = 190;
+    int errorRange = 50 - 10 * difficulty;
+    int overfeedPct = optimalOverfeed + RandRange(2 * errorRange + 1)
+                      - errorRange - 1;
+    if (overfeedPct < 100)
+        overfeedPct = 100;
+    int desiredFeed = aPlayer->peopleGrainNeed * overfeedPct / 100;
+    aPlayer->peopleGrainFeed = MIN(desiredFeed, aPlayer->grain);
     aPlayer->grain -= aPlayer->peopleGrainFeed;
+
+    GameLog("  Feed army: %d (need %d)  Feed people: %d (need %d, %d%%)\n",
+            aPlayer->armyGrainFeed, aPlayer->armyGrainNeed,
+            aPlayer->peopleGrainFeed, aPlayer->peopleGrainNeed, overfeedPct);
+    GameLog("  Grain remaining: %d\n", aPlayer->grain);
 }
 
 
@@ -753,107 +777,9 @@ static void CPUGrainPhase(Player *aPlayer)
 
 static void CPUPopulationPhase(Player *aPlayer)
 {
-    int population;
-    int born;
-    int immigrated;
-    int merchantsImmigrated;
-    int noblesImmigrated;
-    int diedDisease;
-    int diedMalnutrition;
-    int diedStarvation;
-    int armyDiedStarvation;
-    int armyDeserted;
-    int populationGain;
-
-    /* Total population. */
-    population =   aPlayer->serfCount
-                 + aPlayer->merchantCount
-                 + aPlayer->nobleCount;
-
-    /* Births (same formula). */
-    born = RandRange((static_cast<int>(static_cast<float>(population) / 9.5)));
-
-    /* Disease deaths (same formula). */
-    diedDisease = RandRange(population / 22);
-
-    /* Starvation and malnutrition (same formula). */
-    diedStarvation = 0;
-    diedMalnutrition = 0;
-    if (aPlayer->peopleGrainNeed > (2 * aPlayer->peopleGrainFeed))
-    {
-        diedMalnutrition = RandRange(population/12 + 1);
-        diedStarvation = RandRange(population/16 + 1);
-    }
-    else if (aPlayer->peopleGrainNeed > aPlayer->peopleGrainFeed)
-    {
-        diedMalnutrition = RandRange(population/15 + 1);
-    }
-    aPlayer->diedStarvation = diedStarvation;
-
-    /* Immigration (same formula). */
-    if (static_cast<float>(aPlayer->peopleGrainFeed) >
-        (1.5 * static_cast<float>(aPlayer->peopleGrainNeed)))
-    {
-        immigrated =
-              static_cast<int>(sqrt(aPlayer->peopleGrainFeed - aPlayer->peopleGrainNeed))
-            - RandRange(static_cast<int>(1.5 * static_cast<float>(aPlayer->customsTax)));
-        if (immigrated > 0)
-            immigrated = RandRange(((2 * immigrated) + 1));
-        else
-            immigrated = 0;
-    }
-    else
-    {
-        immigrated = 0;
-    }
-    aPlayer->immigrated = immigrated;
-
-    /* Merchant and noble immigration (same formula). */
-    merchantsImmigrated = 0;
-    noblesImmigrated = 0;
-    if ((immigrated / 5) > 0)
-        merchantsImmigrated = RandRange(immigrated / 5);
-    if ((immigrated / 25) > 0)
-        noblesImmigrated = RandRange(immigrated / 25);
-
-    /* Army starvation and desertion (same formula). */
-    armyDiedStarvation = 0;
-    armyDeserted = 0;
-    if (aPlayer->armyGrainNeed > (2 * aPlayer->armyGrainFeed))
-    {
-        armyDiedStarvation = RandRange(aPlayer->soldierCount/2 + 1);
-        aPlayer->soldierCount -= armyDiedStarvation;
-        armyDeserted = RandRange(aPlayer->soldierCount / 5);
-        aPlayer->soldierCount -= armyDeserted;
-    }
-
-    /* Army efficiency (same formula). */
-    aPlayer->armyEfficiency =   (10 * aPlayer->armyGrainFeed)
-                              / (aPlayer->armyGrainNeed > 0
-                                 ? aPlayer->armyGrainNeed : 1);
-    if (aPlayer->armyEfficiency < 5)
-        aPlayer->armyEfficiency = 5;
-    else if (aPlayer->armyEfficiency > 15)
-        aPlayer->armyEfficiency = 15;
-
-    /* Update population (same formula). */
-    populationGain =
-        born + immigrated - diedDisease - diedMalnutrition - diedStarvation;
-    aPlayer->serfCount +=
-        populationGain - merchantsImmigrated - noblesImmigrated;
-    aPlayer->merchantCount += merchantsImmigrated;
-    aPlayer->nobleCount += noblesImmigrated;
-
-    /* Check for death (same as human). */
-    if ((aPlayer->diedStarvation > 0) &&
-        (RandRange(aPlayer->diedStarvation) > RandRange(110)))
-    {
-        aPlayer->dead = true;
-    }
-    if (RandRange(100) == 1)
-    {
-        aPlayer->dead = true;
-    }
+    PopulationResult result = ComputePopulation(aPlayer);
+    ApplyPopulationChanges(aPlayer, result);
+    CheckPlayerDeath(aPlayer);
 }
 
 
@@ -873,8 +799,68 @@ static void CPUInvestmentsPhase(Player *aPlayer)
 
     /* Set taxes via the strategy. */
     cpuStrategies[difficulty]->manageTaxes(aPlayer);
+    GameLog("  Set taxes: Customs %d%%, Sales %d%%, Income %d%%\n",
+            aPlayer->customsTax, aPlayer->salesTax, aPlayer->incomeTax);
 
     /* Make investment purchases via the strategy. */
     cpuStrategies[difficulty]->manageInvestments(aPlayer);
+}
+
+
+/*
+ * Display the full economy screen for a CPU player in omniscient mode.
+ * Shows the same information a human player sees on their investments screen.
+ *
+ *   aPlayer                CPU player.
+ */
+
+static void OmniscientScreen(Player *aPlayer)
+{
+    char input[80];
+    char rulerLine[160];
+
+    snprintf(rulerLine, sizeof(rulerLine), "%s %s of %s",
+             aPlayer->title, aPlayer->name, aPlayer->country->name);
+    UITitle("Intelligence", rulerLine);
+
+    /* Economy overview. */
+    printw("Land: %s   Grain: %s   Treasury: %s %s\n",
+           FmtNum(aPlayer->land), FmtNum(aPlayer->grain),
+           FmtNum(aPlayer->treasury), aPlayer->country->currency);
+    printw("Serfs: %s  Merchants: %s  Nobles: %s  Soldiers: %s\n",
+           FmtNum(aPlayer->serfCount), FmtNum(aPlayer->merchantCount),
+           FmtNum(aPlayer->nobleCount), FmtNum(aPlayer->soldierCount));
+    UISeparator();
+
+    /* Tax rates and revenues. */
+    printw("Customs %2d%%  %7s | Sales %2d%%  %7s | Income %2d%%  %7s\n",
+           aPlayer->customsTax, FmtNum(aPlayer->customsTaxRevenue),
+           aPlayer->salesTax, FmtNum(aPlayer->salesTaxRevenue),
+           aPlayer->incomeTax, FmtNum(aPlayer->incomeTaxRevenue));
+    UISeparator();
+
+    /* Investment table. */
+    printw("                 Count    Revenue     Cost\n");
+    printw("Marketplaces     %5s    %7s     1,000\n",
+           FmtNum(aPlayer->marketplaceCount),
+           FmtNum(aPlayer->marketplaceRevenue));
+    printw("Grain Mills      %5s    %7s     2,000\n",
+           FmtNum(aPlayer->grainMillCount),
+           FmtNum(aPlayer->grainMillRevenue));
+    printw("Foundries        %5s    %7s     7,000\n",
+           FmtNum(aPlayer->foundryCount),
+           FmtNum(aPlayer->foundryRevenue));
+    printw("Shipyards        %5s    %7s     8,000\n",
+           FmtNum(aPlayer->shipyardCount),
+           FmtNum(aPlayer->shipyardRevenue));
+    printw("Soldiers         %5s    %7s         8\n",
+           FmtNum(aPlayer->soldierCount),
+           FmtNum(aPlayer->soldierRevenue));
+    printw("Palace           %5d%%              5,000\n",
+           10 * aPlayer->palaceCount);
+    UISeparator();
+
+    printw("<Enter>? ");
+    getnstr(input, sizeof(input));
 }
 

@@ -19,6 +19,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "economy.h"
 #include "ui.h"
 
 
@@ -55,48 +56,8 @@ static void UpdateTreasuryDisplay(Player *aPlayer);
 
 void GrainScreen(Player *aPlayer)
 {
-    int usableLand;
-
-    /* Determine what percentage of grain the rats ate. */
-    aPlayer->ratPct = RandRange(30);
-    aPlayer->grain -= (aPlayer->grain * aPlayer->ratPct) / 100;
-
-    /* Determine the amount of usable land for grain. */
-    usableLand =   aPlayer->land
-                 - aPlayer->serfCount
-                 - (2 * aPlayer->nobleCount)
-                 - aPlayer->palaceCount
-                 - aPlayer->merchantCount
-                 - (2 * aPlayer->soldierCount);
-
-    /* Each bushel of grain in the reserves can be used to seed 3 acres of */
-    /* land.                                                               */
-    if (usableLand > (3 * aPlayer->grain))
-    {
-        usableLand = 3 * aPlayer->grain;
-    }
-
-    /* Each serf can farm 5 acres of land. */
-    if (usableLand > (5 * aPlayer->serfCount))
-    {
-        usableLand = 5 * aPlayer->serfCount;
-    }
-
-    /* Determine the grain harvest. */
-    aPlayer->grainHarvest =   (weather * usableLand * 0.72)
-                            + RandRange(500)
-                            - (aPlayer->foundryCount * 500);
-    if (aPlayer->grainHarvest < 0)
-        aPlayer->grainHarvest = 0;
-    aPlayer->grain += aPlayer->grainHarvest;
-
-    /* Determine the amount of grain required by the people. */
-    aPlayer->peopleGrainNeed = 5 * (  aPlayer->serfCount
-                                    + aPlayer->merchantCount
-                                    + (3 * aPlayer->nobleCount));
-
-    /* Determine the amount of grain required by the army. */
-    aPlayer->armyGrainNeed = 8 * aPlayer->soldierCount;
+    /* Shared grain computation (rats, harvest, needs). */
+    ComputeGrainPhase(aPlayer);
 
     /* Draw the grain screen. */
     DrawGrainScreen(aPlayer);
@@ -136,10 +97,14 @@ static void DrawGrainScreen(Player *aPlayer)
              aPlayer->title, aPlayer->name, country->name);
     UITitle("Grain", rulerLine);
 
+    UIColor(UIC_BAD);
     printw("Rats ate %d%% of the grain reserve\n", aPlayer->ratPct);
+    UIColorOff();
 
     /* Grain stats table. */
+    UIColor(UIC_HEADING);
     printw("Harvest   Reserve   People     Army       Treasury\n");
+    UIColorOff();
     printw("%7s   %7s   %7s   %7s    %7s %s\n",
            FmtNum(aPlayer->grainHarvest),
            FmtNum(aPlayer->grain),
@@ -150,8 +115,10 @@ static void DrawGrainScreen(Player *aPlayer)
     UISeparator();
 
     /* Grain market. */
+    UIColor(UIC_HEADING);
     printw("Grain For Sale:\n");
     printw("  #  Country           Bushels    Price\n");
+    UIColorOff();
     anyGrainForSale = false;
     for (i = 0; i < COUNTRY_COUNT; i++)
     {
@@ -330,6 +297,9 @@ static void BuyGrain(Player *aPlayer)
     seller->treasury += grain * seller->grainPrice;
     seller->grainForSale -= grain;
     UpdateTreasuryDisplay(aPlayer);
+    GameLog("  Bought %d grain from %s (-%d)  Treasury: %d  Grain: %d\n",
+            grain, seller->country->name, totalPrice,
+            aPlayer->treasury, aPlayer->grain);
 }
 
 
@@ -391,6 +361,8 @@ static void SellGrain(Player *aPlayer)
         / static_cast<float>(aPlayer->grainForSale + grainToSell);
     aPlayer->grainForSale += grainToSell;
     aPlayer->grain -= grainToSell;
+    GameLog("  Sell %d grain at %.2f  Grain: %d\n",
+            grainToSell, grainPrice, aPlayer->grain);
 }
 
 
@@ -439,6 +411,8 @@ static void SellLand(Player *aPlayer)
     aPlayer->land -= landToSell;
     barbarianLand += landToSell;
     UpdateTreasuryDisplay(aPlayer);
+    GameLog("  Sell %d acres (+%d)  Treasury: %d  Land: %d\n",
+            landToSell, 2 * landToSell, aPlayer->treasury, aPlayer->land);
 }
 
 
@@ -489,6 +463,8 @@ static void FeedCountry(Player *aPlayer)
     } while (!validGrainToFeed);
     aPlayer->grain -= grainToFeed;
     aPlayer->armyGrainFeed = grainToFeed;
+    GameLog("  Feed army: %d (need %d)  Grain: %d\n",
+            grainToFeed, aPlayer->armyGrainNeed, aPlayer->grain);
 
     /* Feed people. */
     validGrainToFeed = false;
@@ -532,5 +508,7 @@ static void FeedCountry(Player *aPlayer)
     } while (!validGrainToFeed);
     aPlayer->grain -= grainToFeed;
     aPlayer->peopleGrainFeed = grainToFeed;
+    GameLog("  Feed people: %d (need %d)  Grain: %d\n",
+            grainToFeed, aPlayer->peopleGrainNeed, aPlayer->grain);
 }
 

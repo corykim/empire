@@ -20,6 +20,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "economy.h"
 #include "cpu_strategy.h"
 #include "ui.h"
 
@@ -105,7 +106,7 @@ void AttackScreen(Player *aPlayer)
             targetPlayer = &(playerList[country - 2]);
             if (targetPlayer == aPlayer)
             {
-                move(15, 0);
+                move(winrows - 1, 0);
                 ShowMessage("%s, that is your own country (#%d)!",
                             aPlayer->title, country);
                 continue;
@@ -115,6 +116,8 @@ void AttackScreen(Player *aPlayer)
         /* Attack. */
         if (aPlayer->attackCount < maxAttacks)
         {
+            GameLog("  Target: %s\n",
+                    targetPlayer ? targetPlayer->country->name : "Barbarians");
             Attack(aPlayer, targetPlayer);
         }
         else
@@ -176,6 +179,9 @@ void CPUAttackScreen(Player *aPlayer)
     if (targetIndex == -1)
         return;
     targetPlayer = (targetIndex == -2) ? nullptr : &(playerList[targetIndex]);
+
+    GameLog("  Target: %s\n",
+            targetPlayer ? targetPlayer->country->name : "Barbarians");
 
     /* Attack. */
     aPlayer->attackCount = 0;
@@ -268,8 +274,13 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
                                Player *aTargetPlayer)
 {
     aPlayer->attackCount++;
-    aPlayer->soldierCount -= aBattle->soldiersToAttackCount
-                             - aBattle->soldierCount;
+    int soldiersLost = aBattle->soldiersToAttackCount - aBattle->soldierCount;
+    aPlayer->soldierCount -= soldiersLost;
+    GameLog("  Battle: sent %d, lost %d, captured %d acres%s\n",
+            aBattle->soldiersToAttackCount, soldiersLost,
+            aBattle->landCaptured,
+            aBattle->targetOverrun ? " (OVERRUN)" :
+            aBattle->targetDefeated ? " (victory)" : " (defeated)");
     if (aTargetPlayer != nullptr)
     {
         if (aBattle->targetSerfs)
@@ -392,24 +403,28 @@ static void DisplayCPUBattleResults(Battle *aBattle)
     landCaptured = aBattle->landCaptured;
 
     /* Display battle results. */
-    clear();
-    mvprintw(0, 0, "----------------------------------------------------------------");
-    mvprintw(1, 23, "Battle Over\n\n");
+    UITitle("Battle Over");
+    printw("\n");
     if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
+        UIColor(UIC_GOOD);
         printw("The country of %s was overrun by %s %s!\n",
                targetPlayer->country->name,
                player->title,
                player->name);
+        UIColorOff();
     }
     else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
     {
+        UIColor(UIC_GOOD);
         printw("%s %s seized all barbarian lands!\n",
                player->title,
                player->name);
+        UIColorOff();
     }
     else if (aBattle->targetDefeated)
     {
+        UIColor(UIC_GOOD);
         printw("The forces of %s %s were victorious.\n",
                player->title,
                player->name);
@@ -418,14 +433,17 @@ static void DisplayCPUBattleResults(Battle *aBattle)
             printw(" from %s.\n", targetPlayer->country->name);
         else
             printw(" from the barbarians.\n");
+        UIColorOff();
     }
     else
     {
+        UIColor(UIC_BAD);
         printw("%s %s was defeated", player->title, player->name);
         if (targetPlayer != nullptr)
             printw(" by %s.\n", targetPlayer->country->name);
         else
             printw(" by the barbarians.\n");
+        UIColorOff();
         if (landCaptured > 2)
             landCaptured /= RandRange(3);
         else
@@ -542,16 +560,22 @@ static void RunBattle(Battle *aBattle)
     {
         /* Show soldiers remaining. */
         clear();
-        mvprintw(1, 0, "----------------------------------------------------------------");
+        getmaxyx(stdscr, winrows, wincols);
+        move(1, 0);
+        UISeparator();
+        UIColor(UIC_HEADING);
         mvprintw(2, 41, "Soldiers Remaining:");
+        UIColorOff();
         mvprintw(4, 13, "%s:", aBattle->soldierLabel);
         mvprintw(5, 13, "%s:", aBattle->targetSoldierLabel);
         mvprintw(4, 51, "%s", FmtNum(soldierCount));
         mvprintw(5, 51, "%s", FmtNum(targetSoldierCount));
         if (targetSerfs)
         {
+            UIColor(UIC_BAD);
             mvprintw(8, 0, "%s's serfs are forced to defend their country!",
                      targetPlayer->country->name);
+            UIColorOff();
         }
         refresh();
 
@@ -648,14 +672,15 @@ static void DisplayBattleResults(Battle *aBattle)
     landCaptured = aBattle->landCaptured;
 
     /* Display battle results. */
-    clear();
-    mvprintw(0, 0, "----------------------------------------------------------------");
-    mvprintw(1, 23, "Battle Over\n\n");
+    UITitle("Battle Over");
+    printw("\n");
     if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
         /* Target player overrun. */
+        UIColor(UIC_GOOD);
         printw("The country of %s was overrun!\n", targetPlayer->country->name);
         printw("All enemy nobles were summarily executed!\n\n\n");
+        UIColorOff();
         printw("The remaining enemy soldiers "
                "were imprisoned. All enemy serfs\n");
         printw("have pledged oaths of fealty to "
@@ -670,21 +695,27 @@ static void DisplayBattleResults(Battle *aBattle)
     }
     else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
     {
+        UIColor(UIC_GOOD);
         printw("All barbarian lands have been seized\n");
         printw("The remaining barbarians fled\n");
+        UIColorOff();
     }
     else if (aBattle->targetDefeated)
     {
         /* Player won. */
+        UIColor(UIC_GOOD);
         printw("The forces of %s %s were victorious.\n",
                player->title,
                player->name);
         printw(" %s acres were seized.\n", FmtNum(landCaptured));
+        UIColorOff();
     }
     else
     {
         /* Player lost. */
+        UIColor(UIC_BAD);
         printw("%s %s was defeated.\n", player->title, player->name);
+        UIColorOff();
         if (landCaptured > 2)
         {
             landCaptured /= RandRange(3);
@@ -708,7 +739,8 @@ static void DisplayBattleResults(Battle *aBattle)
     }
 
     /* Wait for player. */
-    printw("\n----------------------------------------------------------------\n");
+    printw("\n");
+    UISeparator();
     printw("<Enter>? ");
     getnstr(input, sizeof(input));
 
@@ -805,7 +837,9 @@ static void DrawAttackScreen(Player *aPlayer)
     UITitle("Attack", rulerLine);
 
     /* Display land holdings. */
+    UIColor(UIC_HEADING);
     printw("  #  Country          Land\n");
+    UIColorOff();
     for (i = 0; i < COUNTRY_COUNT + 1; i++)
     {
         /* Get the country name and player land.  Don't display dead players. */

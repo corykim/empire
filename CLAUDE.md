@@ -21,7 +21,7 @@ Requires: `g++` (C++17), `ncurses`, `libm`.
 |------|---------|
 | `empire.h` | All shared types (Country, Player, Battle), globals, macros, prototypes |
 | `cpu_strategy.h` | CPUStrategy abstract base class + 5 derived classes |
-| `ui.h` / `ui.cpp` | UI helper library: screen templates, separators, column formatting |
+| `ui.h` / `ui.cpp` | UI helper library: colors, dynamic sizing, screen templates, separators, column formatting |
 | `empire.cpp` | Main loop, setup screens, CPU economic phases, ShowMessage, FmtNum, ParseNum |
 | `cpu.cpp` | Strategy class implementations (target selection, troops, investments, taxes) |
 | `attack.cpp` | Human/CPU attack screens, battle engine (RunBattle, InitBattle, etc.) |
@@ -34,13 +34,17 @@ Requires: `g++` (C++17), `ncurses`, `libm`.
 
 All screens use a shared UI library for consistent layout:
 
-- **`UITitle(title, rulerLine)`** — Clears the screen, prints a title (with optional ruler name), then a separator line. Every screen starts with this.
-- **`UISeparator()`** — Prints a 64-character dash line. Used between sections and before prompt areas.
+- **`UIInit()`** — Initializes ncurses, colors, and terminal size. Call once at startup instead of `initscr()`.
+- **`UIColor(UIC_xxx)`** / **`UIColorOff()`** — Set/clear text color. Colors defined via X-macro with off/dark themes.
+- **`UITitle(title, rulerLine)`** — Clears the screen, updates `winrows`/`wincols`, draws a full-width colored title bar, then a separator. Every screen starts with this.
+- **`UISeparator()`** — Prints a full-width dash line. Used between sections and before prompt areas.
 - **`UICol(value, width)`** — Right-aligned string in a fixed-width column.
 - **`UIColNum(value, width)`** — Right-aligned integer with thousands separators.
 - **`UIColLabel(label, width)`** — Left-aligned label in a fixed-width column.
 
-Constants: `SCREEN_WIDTH = 64`, `SCREEN_ROWS = 16`.
+Color types: `UIC_DEFAULT`, `UIC_TITLE`, `UIC_SEPARATOR`, `UIC_HEADING`, `UIC_PROMPT`, `UIC_GOOD`, `UIC_BAD`.
+
+Globals: `winrows`, `wincols` — terminal dimensions, updated on each `UITitle()` call.
 
 ### Number Formatting
 
@@ -51,13 +55,13 @@ Constants: `SCREEN_WIDTH = 64`, `SCREEN_ROWS = 16`.
 
 Every game screen follows this structure:
 ```
-UITitle("Screen Name", "Ruler Title Name of Country");   // row 0-1
-[screen content — tables, messages]                       // rows 2-12
-UISeparator();                                            // row 13
-[prompt on rows 14-15, managed via CLEAR_MSG_AREA()]
+UITitle("Screen Name", "Ruler Title Name of Country");   // row 0-1 (colored bar + separator)
+[screen content — tables, messages]                       // rows 2..winrows-4
+UISeparator();                                            // optional content separator
+[prompt at bottom, managed via CLEAR_MSG_AREA()]          // rows winrows-2..winrows-1
 ```
 
-The window is 16 rows x 64 columns. Rows 14-15 are the prompt/message area. Content must fit within rows 2-12 (~11 rows of data).
+The game uses the full terminal (dynamic `winrows` x `wincols`). Content flows from the top; prompts are pinned to the bottom via `CLEAR_MSG_AREA()`. Separators span the full terminal width.
 
 ### Key Design Decisions
 

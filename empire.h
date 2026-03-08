@@ -226,6 +226,7 @@ extern int weather;
 extern int barbarianLand;
 extern int done;
 extern int difficulty;
+extern bool omniscient;
 
 
 /*------------------------------------------------------------------------------
@@ -240,8 +241,6 @@ void InvestmentsScreen(Player *aPlayer);
 void AttackScreen(Player *aPlayer);
 
 void CPUAttackScreen(Player *aPlayer);
-
-void ComputeRevenues(Player *aPlayer);
 
 void ShowMessage(const char *fmt, ...);
 
@@ -283,20 +282,11 @@ int ParseNum(const char *str);
 
 
 /*
- * Clear the two-line message area at the bottom of the screen (rows 14-15)
- * and position the cursor at the start of row 14.
+ * Clear the two-line message area at the bottom of the screen and position
+ * the cursor at the start of the prompt row.  Uses winrows for dynamic sizing.
  */
 
-/*
- * Display a message, refresh the screen, and delay proportional to the
- * number of words.  200ms per word, never less than DELAY_TIME.  Accepts
- * printf-style format strings.
- */
-
-void ShowMessage(const char *fmt, ...);
-
-
-#define CLEAR_MSG_AREA() do { move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0); } while (0)
+#define CLEAR_MSG_AREA() do { move(winrows-2, 0); clrtoeol(); move(winrows-1, 0); clrtoeol(); move(winrows-2, 0); } while (0)
 
 
 #endif /* __EMPIRE_H__ */

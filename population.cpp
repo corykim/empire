@@ -18,6 +18,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "economy.h"
 #include "ui.h"
 
 
@@ -26,7 +27,7 @@
  * Prototypes.
  */
 
-static void PlayerDeath(Player *aPlayer);
+static void PlayerDeathUI(Player *aPlayer, DeathCause cause);
 
 
 /*------------------------------------------------------------------------------
@@ -44,17 +45,6 @@ void PopulationScreen(Player *aPlayer)
 {
     char     input[80];
     Country *country;
-    int      population;
-    int      populationGain;
-    int      born;
-    int      immigrated;
-    int      merchantsImmigrated;
-    int      noblesImmigrated;
-    int      diedDisease;
-    int      diedMalnutrition;
-    int      diedStarvation;
-    int      armyDiedStarvation;
-    int      armyDeserted;
 
     /* Get the player country. */
     country = aPlayer->country;
@@ -66,96 +56,42 @@ void PopulationScreen(Player *aPlayer)
     UITitle("Population", rulerLine);
     printw("In year %d:\n", year);
 
-    /* Determine the total population. */
-    population =   aPlayer->serfCount
-                 + aPlayer->merchantCount
-                 + aPlayer->nobleCount;
-
-    /* Determine the number of babies born. */
-    born = RandRange((static_cast<int>(static_cast<float>(population) / 9.5)));
-
-    /* Determine the number of people who died from disease. */
-    diedDisease = RandRange(population / 22);
-
-    /* Determine the number of people who died of starvation and */
-    /* malnutrition.                                             */
-    diedStarvation = 0;
-    diedMalnutrition = 0;
-    if (aPlayer->peopleGrainNeed > (2 * aPlayer->peopleGrainFeed))
-    {
-        diedMalnutrition = RandRange(population/12 + 1);
-        diedStarvation = RandRange(population/16 + 1);
-    }
-    else if (aPlayer->peopleGrainNeed > aPlayer->peopleGrainFeed)
-    {
-        diedMalnutrition = RandRange(population/15 + 1);
-    }
-    aPlayer->diedStarvation = diedStarvation;
-
-    /* Determine the number of people who immigrated. */
-    if (static_cast<float>(aPlayer->peopleGrainFeed) >
-        (1.5 * static_cast<float>(aPlayer->peopleGrainNeed)))
-    {
-        immigrated =
-              static_cast<int>(sqrt(aPlayer->peopleGrainFeed - aPlayer->peopleGrainNeed))
-            - RandRange(static_cast<int>(1.5 * static_cast<float>(aPlayer->customsTax)));
-        if (immigrated > 0)
-            immigrated = RandRange(((2 * immigrated) + 1));
-        else
-            immigrated = 0;
-    }
-    else
-    {
-        immigrated = 0;
-    }
-    aPlayer->immigrated = immigrated;
-
-    /* Determine the number of merchants and nobles who immigrated. */
-    merchantsImmigrated = 0;
-    noblesImmigrated = 0;
-    if ((immigrated / 5) > 0)
-        merchantsImmigrated = RandRange(immigrated / 5);
-    if ((immigrated / 25) > 0)
-        noblesImmigrated = RandRange(immigrated / 25);
-
-    /* Determine the number of soldiers who died of starvation or deserted. */
-    armyDiedStarvation = 0;
-    armyDeserted = 0;
-    if (aPlayer->armyGrainNeed > (2 * aPlayer->armyGrainFeed))
-    {
-        armyDiedStarvation = RandRange(aPlayer->soldierCount/2 + 1);
-        aPlayer->soldierCount -= armyDiedStarvation;
-        armyDeserted = RandRange(aPlayer->soldierCount / 5);
-        aPlayer->soldierCount -= armyDeserted;
-    }
-
-    /* Determine the army's efficiency. */
-    aPlayer->armyEfficiency =   (10 * aPlayer->armyGrainFeed)
-                              / aPlayer->armyGrainNeed;
-    if (aPlayer->armyEfficiency < 5)
-        aPlayer->armyEfficiency = 5;
-    else if (aPlayer->armyEfficiency > 15)
-        aPlayer->armyEfficiency = 15;
+    /* Compute population changes using shared formula. */
+    PopulationResult result = ComputePopulation(aPlayer);
 
     /* Display the number of babies born. */
-    printw(" %s babies were born\n", FmtNum(born));
+    UIColor(UIC_GOOD);
+    printw(" %s babies were born\n", FmtNum(result.born));
+    UIColorOff();
 
     /* Display the number of people who died of disease. */
-    printw(" %s people died of disease\n", FmtNum(diedDisease));
+    UIColor(UIC_BAD);
+    printw(" %s people died of disease\n", FmtNum(result.diedDisease));
+    UIColorOff();
 
     /* Display the number of people who immigrated. */
-    if (immigrated > 0)
-        printw(" %s people immigrated into your country.\n", FmtNum(immigrated));
+    if (result.immigrated > 0)
+    {
+        UIColor(UIC_GOOD);
+        printw(" %s people immigrated into your country.\n",
+               FmtNum(result.immigrated));
+        UIColorOff();
+    }
 
     /* Display the number of people who died of starvation and malnutrition. */
-    if (diedMalnutrition > 0)
-        printw(" %s people died of malnutrition.\n", FmtNum(diedMalnutrition));
-    if (diedStarvation > 0)
-        printw(" %s people starved to death.\n", FmtNum(diedStarvation));
+    UIColor(UIC_BAD);
+    if (result.diedMalnutrition > 0)
+        printw(" %s people died of malnutrition.\n",
+               FmtNum(result.diedMalnutrition));
+    if (result.diedStarvation > 0)
+        printw(" %s people starved to death.\n",
+               FmtNum(result.diedStarvation));
 
     /* Display the number of soldiers who starved to death. */
-    if (armyDiedStarvation > 0)
-        printw(" %s soldiers starved to death.\n", FmtNum(armyDiedStarvation));
+    if (result.armyDiedStarvation > 0)
+        printw(" %s soldiers starved to death.\n",
+               FmtNum(result.armyDiedStarvation));
+    UIColorOff();
 
     UISeparator();
 
@@ -164,94 +100,85 @@ void PopulationScreen(Player *aPlayer)
            10 * aPlayer->armyEfficiency);
 
     /* Display the population gain or loss. */
-    populationGain =
-        born + immigrated - diedDisease - diedMalnutrition - diedStarvation;
-    if (populationGain >= 0)
-        printw("Your population gained %s citizens.\n", FmtNum(populationGain));
+    if (result.populationGain >= 0)
+    {
+        UIColor(UIC_GOOD);
+        printw("Your population gained %s citizens.\n",
+               FmtNum(result.populationGain));
+        UIColorOff();
+    }
     else
-        printw("Your population lost %s citizens.\n", FmtNum(-populationGain));
+    {
+        UIColor(UIC_BAD);
+        printw("Your population lost %s citizens.\n",
+               FmtNum(-result.populationGain));
+        UIColorOff();
+    }
 
-    /* Update population. */
-    aPlayer->serfCount +=
-        populationGain - merchantsImmigrated - noblesImmigrated;
-    aPlayer->merchantCount += merchantsImmigrated;
-    aPlayer->nobleCount += noblesImmigrated;
+    /* Apply population changes using shared formula. */
+    ApplyPopulationChanges(aPlayer, result);
 
     UISeparator();
     printw("<Enter>? ");
     getnstr(input, 80);
 
-    /* Check if player died. */
-    PlayerDeath(aPlayer);
+    /* Check if player died using shared formula, then show UI if so. */
+    DeathCause cause = CheckPlayerDeath(aPlayer);
+    if (cause != DEATH_NONE)
+        PlayerDeathUI(aPlayer, cause);
 }
 
 
 /*
- * Check if any event happened that killed the player specified by aPlayer.
+ * Display the death and funeral UI for the player specified by aPlayer.
  *
  *   aPlayer                Player.
+ *   cause                  How the player died.
  */
 
-static void PlayerDeath(Player *aPlayer)
+static void PlayerDeathUI(Player *aPlayer, DeathCause cause)
 {
-    Country *country;
+    Country *country = aPlayer->country;
 
-    /* Get the player country. */
-    country = aPlayer->country;
+    clear();
+    move(0, 0);
+    UIColor(UIC_BAD);
+    printw("Very sad news ...\n\n");
 
-    /* If anyone starved to death, their mother might assassinate the ruler. */
-    if ((aPlayer->diedStarvation > 0) &&
-        (RandRange(aPlayer->diedStarvation) > RandRange(110)))
+    if (cause == DEATH_STARVATION)
     {
-        aPlayer->dead = true;
-        clear();
-        move(0, 0);
-        printw("Very sad news ...\n\n");
         printw("%s %s of %s has been assassinated\n",
-            aPlayer->title,
-            aPlayer->name,
-            country->name);
+               aPlayer->title, aPlayer->name, country->name);
         printw("by a crazed mother whose child had starved to death. . .\n\n");
     }
-
-    /* Check if the player died for any other reason. */
-    if (RandRange(100) == 1)
+    else
     {
-        aPlayer->dead = true;
-        clear();
-        move(0, 0);
-        printw("Very sad news ...\n\n");
         printw("%s %s ", aPlayer->title, aPlayer->name);
-        switch(RandRange(4))
+        switch (RandRange(4))
         {
-            case 1 :
+            case 1:
                 printw("has been assassinated by an ambitious noble\n\n");
                 break;
-
-            case 2 :
-                printw("has been killed from a fall during the annual fox-hunt.\n\n");
+            case 2:
+                printw("has been killed from a fall during the annual "
+                       "fox-hunt.\n\n");
                 break;
-
-            case 3 :
+            case 3:
                 printw("died of acute food poisoning.\n"
                        "The royal cook was summarily executed.\n\n");
                 break;
-
-            case 4 :
-            default :
+            case 4:
+            default:
                 printw("passed away this winter from a weak heart.\n\n");
                 break;
         }
     }
+    UIColorOff();
 
-    /* If the player died, display the funeral. */
-    if (aPlayer->dead)
-    {
-        char input[80];
-        printw("The other nation-states have sent representatives to the funeral\n\n");
-        printw("<Enter>? ");
-        getnstr(input, sizeof(input));
-    }
+    printw("The other nation-states have sent representatives "
+           "to the funeral\n\n");
+
+    char input[80];
+    printw("<Enter>? ");
+    getnstr(input, sizeof(input));
 }
-
-
