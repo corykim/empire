@@ -463,11 +463,15 @@ static void DisplayCPUBattleResults(Battle *aBattle)
         Sack(targetPlayer);
     }
 
-    /* If a human player was involved, wait for acknowledgement. */
-    if ((targetPlayer != nullptr && targetPlayer->human) ||
-        (player != nullptr && player->human))
+    /* Wait for Enter if a human was involved or a country was destroyed. */
+    bool humanInvolved = (targetPlayer != nullptr && targetPlayer->human) ||
+                         (player != nullptr && player->human);
+    bool countryDestroyed = (targetPlayer != nullptr) && aBattle->targetOverrun;
+    if (humanInvolved || countryDestroyed)
     {
-        printw("\n<Enter>? ");
+        printw("\n");
+        UISeparator();
+        printw("<Enter>? ");
         char input[80];
         getnstr(input, sizeof(input));
     }

@@ -146,44 +146,43 @@ static void PlayerDeathUI(Player *aPlayer, DeathCause cause)
 {
     Country *country = aPlayer->country;
 
-    clear();
-    move(0, 0);
+    UITitle("News");
+    printw("\n");
     UIColor(UIC_BAD);
-    printw("Very sad news ...\n\n");
-
     if (cause == DEATH_STARVATION)
     {
         printw("%s %s of %s has been assassinated\n",
                aPlayer->title, aPlayer->name, country->name);
-        printw("by a crazed mother whose child had starved to death. . .\n\n");
+        printw("by a crazed mother whose child had starved to death.\n");
     }
     else
     {
-        printw("%s %s ", aPlayer->title, aPlayer->name);
+        printw("%s %s of %s ", aPlayer->title, aPlayer->name,
+               country->name);
         switch (RandRange(4))
         {
             case 1:
-                printw("has been assassinated by an ambitious noble\n\n");
+                printw("has been assassinated by an ambitious noble.\n");
                 break;
             case 2:
-                printw("has been killed from a fall during the annual "
-                       "fox-hunt.\n\n");
+                printw("has been killed in a fall during the annual "
+                       "fox-hunt.\n");
                 break;
             case 3:
                 printw("died of acute food poisoning.\n"
-                       "The royal cook was summarily executed.\n\n");
+                       "The royal cook was summarily executed.\n");
                 break;
             case 4:
             default:
-                printw("passed away this winter from a weak heart.\n\n");
+                printw("passed away this winter from a weak heart.\n");
                 break;
         }
     }
     UIColorOff();
+    printw("\nThe other nation-states have sent representatives "
+           "to the funeral.\n");
 
-    printw("The other nation-states have sent representatives "
-           "to the funeral\n\n");
-
+    UISeparator();
     char input[80];
     printw("<Enter>? ");
     getnstr(input, sizeof(input));

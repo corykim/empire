@@ -212,13 +212,19 @@ When a player requests more soldiers than they can afford, train, equip, or lead
 
 When people immigrate, the population screen shows a breakdown of how many merchants and nobles arrived among the immigrants.
 
+### Player Death
+
+When any ruler dies (human or CPU), the turn ends immediately — no further investments or attacks. A notification screen shows the cause of death and prompts for Enter. CPU-vs-CPU battle results auto-dismiss unless a country is destroyed.
+
 ## UI
 
+- Consistent screen template: all screens use `UITitle()` for a colored title bar, `UISeparator()` before prompts, and `<Enter>?` for continuation.
 - Full-screen dynamic layout using `winrows`/`wincols` (updated on each screen).
 - Color support with off/dark themes via X-macro pattern.
 - `ShowMessage(fmt, ...)` prints, refreshes, and delays proportional to word count (200ms per word, minimum 2 seconds).
 - Summary screen sorted by land holdings, largest first.
 - Treasury updates in real-time on the grain trading screen.
+- Grain buy prompt shows maximum affordable: `How many bushels (up to 1,234)?`
 - Tax prompts show the current rate: `Customs tax (now 20%, max 50%)?`
 - Land sell prompt shows current holdings: `How many of your 9,445 acres will you sell?`
 - All prompts show `0) Done` or `0 to skip` where applicable.

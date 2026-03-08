@@ -272,17 +272,19 @@ int main(int argc, char *argv[])
                 if (humansAlive == 1 && cpuAlive == 0 && lastHuman != nullptr)
                 {
                     char input[80];
-                    UITitle("Victory!");
+                    UITitle("Victory");
+                    printw("\n");
                     UIColor(UIC_GOOD);
-                    printw("\nAll rival nations have fallen!\n\n");
+                    printw("All rival nations have fallen!\n\n");
                     printw("%s %s of %s has conquered the known world!\n\n",
                            lastHuman->title,
                            lastHuman->name,
                            lastHuman->country->name);
-                    printw("Long live %s %s!\n\n",
+                    printw("Long live %s %s!\n",
                            lastHuman->title,
                            lastHuman->name);
                     UIColorOff();
+                    UISeparator();
                     printw("<Enter>? ");
                     getnstr(input, sizeof(input));
                     gameOver = true;
@@ -683,6 +685,10 @@ static void PlayHuman(Player *aPlayer)
     GameLog("--- Population Phase ---\n");
     PopulationScreen(aPlayer);
 
+    /* If this player died, end their turn. */
+    if (aPlayer->dead)
+        return;
+
     /* If all human players have died, end game. */
     for (i = 0; i < playerCount; i++)
     {
@@ -743,6 +749,8 @@ static void PlayCPU(Player *aPlayer)
 
     GameLog("--- Population Phase ---\n");
     CPUPopulationPhase(aPlayer);
+    if (aPlayer->dead)
+        return;
 
     GameLog("--- Investments Phase ---\n");
     CPUInvestmentsPhase(aPlayer);
@@ -809,7 +817,55 @@ static void CPUPopulationPhase(Player *aPlayer)
 {
     PopulationResult result = ComputePopulation(aPlayer);
     ApplyPopulationChanges(aPlayer, result);
-    CheckPlayerDeath(aPlayer);
+    DeathCause cause = CheckPlayerDeath(aPlayer);
+
+    /* Notify the human player when a CPU ruler dies. */
+    if (cause != DEATH_NONE)
+    {
+        char input[80];
+        UITitle("News");
+        printw("\n");
+        UIColor(UIC_BAD);
+        if (cause == DEATH_STARVATION)
+        {
+            printw("%s %s of %s has been assassinated\n",
+                   aPlayer->title, aPlayer->name,
+                   aPlayer->country->name);
+            printw("by a crazed mother whose child had starved "
+                   "to death.\n");
+        }
+        else
+        {
+            printw("%s %s of %s ", aPlayer->title, aPlayer->name,
+                   aPlayer->country->name);
+            switch (RandRange(4))
+            {
+                case 1:
+                    printw("has been assassinated by an ambitious "
+                           "noble.\n");
+                    break;
+                case 2:
+                    printw("has been killed in a fall during the "
+                           "annual fox-hunt.\n");
+                    break;
+                case 3:
+                    printw("died of acute food poisoning.\n"
+                           "The royal cook was summarily executed.\n");
+                    break;
+                case 4:
+                default:
+                    printw("passed away this winter from a weak "
+                           "heart.\n");
+                    break;
+            }
+        }
+        UIColorOff();
+        printw("\nThe other nation-states have sent representatives "
+               "to the funeral.\n");
+        UISeparator();
+        printw("<Enter>? ");
+        getnstr(input, sizeof(input));
+    }
 }
 
 

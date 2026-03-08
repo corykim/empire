@@ -68,6 +68,8 @@ You can't attack other countries until year 3 (international treaty). The number
 - **Overrun**: If an enemy destroys all your soldiers and serfs defend unsuccessfully, your country falls.
 - **Random events**: There's a 1% chance each year of dying from an accident, poisoning, or assassination by a noble.
 
+When any ruler dies — yours or a rival's — you'll see a notification and be prompted to continue. A ruler who dies mid-turn immediately loses control; their turn ends with no further investments or attacks.
+
 ### Winning
 
 Eliminate all five CPU countries by overrunning them in battle. You are the last ruler standing.

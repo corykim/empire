@@ -267,7 +267,7 @@ static void BuyGrain(Player *aPlayer)
     {
         /* Get the number of bushels to purchase. */
         CLEAR_MSG_AREA();
-        printw("How many bushels? ");
+        printw("How many bushels (up to %s)? ", FmtNum(MIN(maxGrain, seller->grainForSale)));
         getnstr(input, sizeof(input));
         grain = ParseNum(input);
 
