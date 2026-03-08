@@ -1,0 +1,11 @@
+# Build artifacts
+empire
+empire_debug
+*.o
+*.d
+
+# macOS
+.DS_Store
+
+# Claude
+/.claude/settings.local.json
