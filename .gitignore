@@ -9,3 +9,4 @@ empire_debug
 
 # Claude
 /.claude/settings.local.json
+*.dSYM/

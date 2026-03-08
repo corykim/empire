@@ -19,6 +19,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "ui.h"
 
 
 /*------------------------------------------------------------------------------
@@ -129,30 +130,28 @@ static void DrawGrainScreen(Player *aPlayer)
     /* Get the player country. */
     country = aPlayer->country;
 
-    /* Reset screen. */
-    clear();
-    move(0, 0);
+    /* Title. */
+    char rulerLine[160];
+    snprintf(rulerLine, sizeof(rulerLine), "%s %s of %s",
+             aPlayer->title, aPlayer->name, country->name);
+    UITitle("Grain", rulerLine);
 
-    /* Display the ruler and country. */
-    printw("%s %s OF %s\n", aPlayer->title, aPlayer->name, country->name);
+    printw("Rats ate %d%% of the grain reserve\n", aPlayer->ratPct);
 
-    /* Display how much grain the rats ate. */
-    printw("RATS ATE %d %% OF THE GRAIN RESERVE\n", aPlayer->ratPct);
+    /* Grain stats table. */
+    printw("Harvest   Reserve   People     Army       Treasury\n");
+    printw("%7s   %7s   %7s   %7s    %7s %s\n",
+           FmtNum(aPlayer->grainHarvest),
+           FmtNum(aPlayer->grain),
+           FmtNum(aPlayer->peopleGrainNeed),
+           FmtNum(aPlayer->armyGrainNeed),
+           FmtNum(aPlayer->treasury),
+           country->currency);
+    UISeparator();
 
-    /* Display grain levels and treasury. */
-    printw("GRAIN     GRAIN     PEOPLE     ARMY       ROYAL\n");
-    printw("HARVEST   RESERVE   REQUIRE    REQUIRES   TREASURY\n");
-    printw(" %6d    %6d    %6d     %6d     %6d\n",
-           aPlayer->grainHarvest,
-           aPlayer->grain,
-           aPlayer->peopleGrainNeed,
-           aPlayer->armyGrainNeed,
-           aPlayer->treasury);
-    printw("BUSHELS   BUSHELS   BUSHELS    BUSHELS    %s\n", country->currency);
-
-    /* Display grain for sale. */
-    printw("------GRAIN FOR SALE:\n");
-    printw("  #  COUNTRY           BUSHELS    PRICE\n");
+    /* Grain market. */
+    printw("Grain For Sale:\n");
+    printw("  #  Country           Bushels    Price\n");
     anyGrainForSale = false;
     for (i = 0; i < COUNTRY_COUNT; i++)
     {
@@ -160,19 +159,19 @@ static void DrawGrainScreen(Player *aPlayer)
         if (player->grainForSale > 0)
         {
             anyGrainForSale = true;
-            printw("  %d  %-18s %6d    %5.2f\n",
+            printw("  %d  %-18s %6s    %5.2f\n",
                    player->number,
                    player->country->name,
-                   player->grainForSale,
+                   FmtNum(player->grainForSale),
                    player->grainPrice);
         }
     }
 
-    /* Display if no grain is for sale. */
     if (!anyGrainForSale)
     {
-        printw("\n\nNO GRAIN FOR SALE . . .\n\n");
+        printw("  (none)\n");
     }
+    UISeparator();
 
     /* Refresh screen. */
     refresh();
@@ -189,7 +188,7 @@ static void UpdateTreasuryDisplay(Player *aPlayer)
 {
     int row, col;
     getyx(stdscr, row, col);
-    mvprintw(4, 43, " %6d", aPlayer->treasury);
+    mvprintw(4, 43, " %6s", FmtNum(aPlayer->treasury));
     move(row, col);
     refresh();
 }
@@ -215,11 +214,11 @@ static void TradeGrainAndLand(Player *aPlayer)
 
         /* Display options. */
         CLEAR_MSG_AREA();
-        printw("1) BUY GRAIN  2) SELL GRAIN  3) SELL LAND  0) DONE? ");
+        printw("1) Buy Grain  2) Sell Grain  3) Sell Land  0) Done? ");
         getnstr(input, sizeof(input));
 
         /* Parse command. */
-        switch (strtol(input, nullptr, 0))
+        switch (ParseNum(input))
         {
             case 0 :
                 doneTrading = true;
@@ -266,9 +265,9 @@ static void BuyGrain(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("BUY FROM WHICH COUNTRY? ");
+        printw("Buy from which country? ");
         getnstr(input, sizeof(input));
-        sellerIndex = strtol(input, nullptr, 0);
+        sellerIndex = ParseNum(input);
         if ((sellerIndex >= 0) && (sellerIndex <= COUNTRY_COUNT))
         {
             validSeller = true;
@@ -282,14 +281,14 @@ static void BuyGrain(Player *aPlayer)
     /* Validate that the seller has grain for sale. */
     if ((seller == nullptr) || (seller->dead) || (seller->grainForSale == 0))
     {
-        ShowMessage("THAT COUNTRY HAS NONE FOR SALE!");
+        ShowMessage("That country has none for sale!");
         return;
     }
 
     /* Cannot buy grain from self. */
     if (seller == aPlayer)
     {
-        ShowMessage("YOU CANNOT BUY GRAIN THAT YOU HAVE PUT ONTO THE MARKET!");
+        ShowMessage("You cannot buy grain that you have put onto the market!");
         return;
     }
 
@@ -300,9 +299,9 @@ static void BuyGrain(Player *aPlayer)
     {
         /* Get the number of bushels to purchase. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY BUSHELS? ");
+        printw("How many bushels? ");
         getnstr(input, sizeof(input));
-        grain = strtol(input, nullptr, 0);
+        grain = ParseNum(input);
 
         /* Compute the total grain purchase price, including marketplace */
         /* markup.                                                       */
@@ -310,14 +309,14 @@ static void BuyGrain(Player *aPlayer)
 
         if (grain > seller->grainForSale)
         {
-            ShowMessage("THEY ONLY HAVE %d BUSHELS FOR SALE!",
-                        seller->grainForSale);
+            ShowMessage("They only have %s bushels for sale!",
+                        FmtNum(seller->grainForSale));
         }
         else if (totalPrice > aPlayer->treasury)
         {
             CLEAR_MSG_AREA();
-            ShowMessage("YOU CAN ONLY AFFORD %d BUSHELS, %s!",
-                        maxGrain, aPlayer->title);
+            ShowMessage("You can only afford %s bushels, %s!",
+                        FmtNum(maxGrain), aPlayer->title);
         }
         else
         {
@@ -353,13 +352,13 @@ static void SellGrain(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("HOW MANY BUSHELS DO YOU WISH TO SELL? ");
+        printw("How many bushels do you wish to sell? ");
         getnstr(input, sizeof(input));
-        grainToSell = strtol(input, nullptr, 0);
+        grainToSell = ParseNum(input);
         if (grainToSell > aPlayer->grain)
         {
             CLEAR_MSG_AREA();
-            ShowMessage("YOU ONLY HAVE %d BUSHELS!", aPlayer->grain);
+            ShowMessage("You only have %s bushels!", FmtNum(aPlayer->grain));
         }
         else if (grainToSell > 0)
         {
@@ -372,12 +371,12 @@ static void SellGrain(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("WHAT WILL BE THE PRICE PER BUSHEL? ");
+        printw("What will be the price per bushel? ");
         getnstr(input, sizeof(input));
         grainPrice = strtod(input, nullptr);
         if (grainPrice > 15.0)
         {
-            ShowMessage("BE REASONABLE . . .EVEN GOLD COSTS LESS THAN THAT!");
+            ShowMessage("Be reasonable . . .even gold costs less than that!");
         }
         else if (grainPrice > 0.0)
         {
@@ -413,14 +412,14 @@ static void SellLand(Player *aPlayer)
     {
         /* Display the price per acre. */
         CLEAR_MSG_AREA();
-        ShowMessage("THE BARBARIANS WILL GIVE YOU 2 %s PER ACRE",
+        ShowMessage("The barbarians will give you 2 %s per acre",
                     aPlayer->country->currency);
 
         /* Get the number of acres to sell. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY ACRES WILL YOU SELL THEM? ");
+        printw("How many acres will you sell? ");
         getnstr(input, sizeof(input));
-        landToSell = strtol(input, nullptr, 0);
+        landToSell = ParseNum(input);
         if (landToSell < 0)
         {
             validLandToSell = false;
@@ -431,7 +430,7 @@ static void SellLand(Player *aPlayer)
         }
         else
         {
-            ShowMessage("YOU MUST KEEP SOME LAND FOR THE ROYAL PALACE!");
+            ShowMessage("You must keep some land for the royal palace!");
         }
     } while (!validLandToSell);
 
@@ -462,23 +461,23 @@ static void FeedCountry(Player *aPlayer)
     {
         /* Get the amount of grain to feed to army. */
         CLEAR_MSG_AREA();
-        printw("FEED ARMY OF %d MEN (NEED %d, ENTER FOR DEFAULT)? ",
-               aPlayer->soldierCount, aPlayer->armyGrainNeed);
+        printw("Feed army of %s men (need %s, ENTER for default)? ",
+               FmtNum(aPlayer->soldierCount), FmtNum(aPlayer->armyGrainNeed));
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->armyGrainNeed;
         else
-            grainToFeed = strtol(input, nullptr, 0);
+            grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)
         {
             CLEAR_MSG_AREA();
-            ShowMessage("YOU CANNOT GIVE YOUR ARMY MORE GRAIN THAN YOU HAVE!");
+            ShowMessage("You cannot give your army more grain than you have!");
         }
         else if (grainToFeed > aPlayer->armyGrainNeed * 2)
         {
             CLEAR_MSG_AREA();
-            printw("YOUR ARMY NEEDS %d BUSHELS. GIVE %d? (Y/N) ",
-                   aPlayer->armyGrainNeed, grainToFeed);
+            printw("Your army needs %s bushels. Give %s? (Y/N) ",
+                   FmtNum(aPlayer->armyGrainNeed), FmtNum(grainToFeed));
             getnstr(input, sizeof(input));
             if (input[0] == 'Y' || input[0] == 'y')
                 validGrainToFeed = true;
@@ -499,29 +498,29 @@ static void FeedCountry(Player *aPlayer)
     {
         /* Get the amount of grain to feed to people. */
         CLEAR_MSG_AREA();
-        printw("FEED %d PEOPLE (NEED %d, ENTER FOR DEFAULT)? ",
-               peopleCount, aPlayer->peopleGrainNeed);
+        printw("Feed %s people (need %s, ENTER for default)? ",
+               FmtNum(peopleCount), FmtNum(aPlayer->peopleGrainNeed));
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->peopleGrainNeed;
         else
-            grainToFeed = strtol(input, nullptr, 0);
+            grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)
         {
             CLEAR_MSG_AREA();
-            ShowMessage("BUT YOU ONLY HAVE %d BUSHELS OF GRAIN!",
-                        aPlayer->grain);
+            ShowMessage("But you only have %s bushels of grain!",
+                        FmtNum(aPlayer->grain));
         }
         else if (static_cast<float>(grainToFeed) < (0.1 * static_cast<float>(aPlayer->grain)))
         {
             CLEAR_MSG_AREA();
-            ShowMessage("YOU MUST RELEASE AT LEAST 10%% OF THE STORED GRAIN");
+            ShowMessage("You must release at least 10%% of the stored grain");
         }
         else if (grainToFeed > aPlayer->peopleGrainNeed * 4)
         {
             CLEAR_MSG_AREA();
-            printw("YOUR PEOPLE NEED %d BUSHELS. GIVE %d? (Y/N) ",
-                   aPlayer->peopleGrainNeed, grainToFeed);
+            printw("Your people need %s bushels. Give %s? (Y/N) ",
+                   FmtNum(aPlayer->peopleGrainNeed), FmtNum(grainToFeed));
             getnstr(input, sizeof(input));
             if (input[0] == 'Y' || input[0] == 'y')
                 validGrainToFeed = true;

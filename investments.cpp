@@ -20,6 +20,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "ui.h"
 
 
 /*------------------------------------------------------------------------------
@@ -143,15 +144,35 @@ void InvestmentsScreen(Player *aPlayer)
 
 static void DrawInvestmentsScreen(Player *aPlayer)
 {
-    /* Reset screen. */
-    clear();
-    move(0, 0);
+    char rulerLine[160];
+    snprintf(rulerLine, sizeof(rulerLine), "%s %s of %s",
+             aPlayer->title, aPlayer->name, aPlayer->country->name);
+    UITitle("Investments", rulerLine);
 
-    /* Display tax revenues. */
-    DisplayTaxRevenues(aPlayer);
+    /* Tax rates and revenues — compact 2-line format. */
+    printw("Customs %2d%%  %7s | Sales %2d%%  %7s | Income %2d%%  %7s\n",
+           aPlayer->customsTax, FmtNum(aPlayer->customsTaxRevenue),
+           aPlayer->salesTax, FmtNum(aPlayer->salesTaxRevenue),
+           aPlayer->incomeTax, FmtNum(aPlayer->incomeTaxRevenue));
+    printw("Treasury: %s %s\n",
+           FmtNum(aPlayer->treasury), aPlayer->country->currency);
+    UISeparator();
 
-    /* Display investments. */
-    DisplayInvestments(aPlayer);
+    /* Investment table. */
+    printw("                 Count    Revenue     Cost\n");
+    printw("1) Marketplaces  %5s    %7s     1,000\n",
+           FmtNum(aPlayer->marketplaceCount), FmtNum(aPlayer->marketplaceRevenue));
+    printw("2) Grain Mills   %5s    %7s     2,000\n",
+           FmtNum(aPlayer->grainMillCount), FmtNum(aPlayer->grainMillRevenue));
+    printw("3) Foundries     %5s    %7s     7,000\n",
+           FmtNum(aPlayer->foundryCount), FmtNum(aPlayer->foundryRevenue));
+    printw("4) Shipyards     %5s    %7s     8,000\n",
+           FmtNum(aPlayer->shipyardCount), FmtNum(aPlayer->shipyardRevenue));
+    printw("5) Soldiers      %5s    %7s         8\n",
+           FmtNum(aPlayer->soldierCount), FmtNum(aPlayer->soldierRevenue));
+    printw("6) Palace        %5d%%              5,000\n",
+           10 * aPlayer->palaceCount);
+    UISeparator();
 }
 
 
@@ -164,20 +185,21 @@ static void DrawInvestmentsScreen(Player *aPlayer)
 void DisplayInvestments(Player *aPlayer)
 {
     /* Display investments. */
-    move(5, 0);
-    printw("INVESTMENTS     NUMBER          PROFITS         COST\n");
-    printw("1) MARKETPLACES % -6d          % -6d          1000\n",
-           aPlayer->marketplaceCount, aPlayer->marketplaceRevenue);
-    printw("2) GRAIN MILLS  % -6d          % -6d          2000\n",
-           aPlayer->grainMillCount, aPlayer->grainMillRevenue);
-    printw("3) FOUNDRIES    % -6d          % -6d          7000\n",
-           aPlayer->foundryCount, aPlayer->foundryRevenue);
-    printw("4) SHIPYARDS    % -6d          % -6d          8000\n",
-           aPlayer->shipyardCount, aPlayer->shipyardRevenue);
-    printw("5) SOLDIERS     % -6d          % -6d          8\n",
-           aPlayer->soldierCount, aPlayer->soldierRevenue);
-    printw("6) PALACE        %d%% COMPLETED                   5000\n",
+    printw("----------------------------------------------------------------\n");
+    printw("                 Count    Revenue     Cost\n");
+    printw("1) Marketplaces  %5s    %7s     1,000\n",
+           FmtNum(aPlayer->marketplaceCount), FmtNum(aPlayer->marketplaceRevenue));
+    printw("2) Grain Mills   %5s    %7s     2,000\n",
+           FmtNum(aPlayer->grainMillCount), FmtNum(aPlayer->grainMillRevenue));
+    printw("3) Foundries     %5s    %7s     7,000\n",
+           FmtNum(aPlayer->foundryCount), FmtNum(aPlayer->foundryRevenue));
+    printw("4) Shipyards     %5s    %7s     8,000\n",
+           FmtNum(aPlayer->shipyardCount), FmtNum(aPlayer->shipyardRevenue));
+    printw("5) Soldiers      %5s    %7s         8\n",
+           FmtNum(aPlayer->soldierCount), FmtNum(aPlayer->soldierRevenue));
+    printw("6) Palace        %5d%%              5,000\n",
            10 * aPlayer->palaceCount);
+    printw("----------------------------------------------------------------\n");
 }
 
 
@@ -296,11 +318,11 @@ void SetTaxes(Player *aPlayer)
 
         /* Get tax to set. */
         CLEAR_MSG_AREA();
-        printw("1) CUSTOMS  2) SALES TAX  3) INCOME TAX  0) DONE? ");
+        printw("1) Customs  2) Sales Tax  3) Income Tax  0) Done? ");
         getnstr(input, sizeof(input));
 
         /* Parse input. */
-        switch (strtol(input, nullptr, 0))
+        switch (ParseNum(input))
         {
             case 0 :
                 done = true;
@@ -342,9 +364,9 @@ void SetCustomsTax(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("CUSTOMS TAX (NOW %d%%, MAX 50%%)? ", aPlayer->customsTax);
+        printw("Customs tax (now %d%%, max 50%%)? ", aPlayer->customsTax);
         getnstr(input, sizeof(input));
-        customsTax = strtol(input, nullptr, 0);
+        customsTax = ParseNum(input);
         if ((customsTax >= 0) && (customsTax <= 50))
             validCustomsTax = true;
     } while (!validCustomsTax);
@@ -369,9 +391,9 @@ void SetSalesTax(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("SALES TAX (NOW %d%%, MAX 20%%)? ", aPlayer->salesTax);
+        printw("Sales tax (now %d%%, max 20%%)? ", aPlayer->salesTax);
         getnstr(input, sizeof(input));
-        salesTax = strtol(input, nullptr, 0);
+        salesTax = ParseNum(input);
         if ((salesTax >= 0) && (salesTax <= 20))
             validSalesTax = true;
     } while (!validSalesTax);
@@ -396,9 +418,9 @@ void SetIncomeTax(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("INCOME TAX (NOW %d%%, MAX 35%%)? ", aPlayer->incomeTax);
+        printw("Income tax (now %d%%, max 35%%)? ", aPlayer->incomeTax);
         getnstr(input, sizeof(input));
-        incomeTax = strtol(input, nullptr, 0);
+        incomeTax = ParseNum(input);
         if ((incomeTax >= 0) && (incomeTax <= 35))
             validIncomeTax = true;
     } while (!validIncomeTax);
@@ -420,16 +442,15 @@ void DisplayTaxRevenues(Player *aPlayer)
     country = aPlayer->country;
 
     /* Display tax revenues. */
-    printw("STATE REVENUES:    TREASURY=%6d %s\n",
-           aPlayer->treasury,
-           country->currency);
-    printw("CUSTOMS DUTY    SALES TAX       INCOME TAX\n");
-    mvprintw(2, 1, "%d %%", aPlayer->customsTax);
-    mvprintw(2, 17, "%d %%", aPlayer->salesTax);
-    mvprintw(2, 33, "%d %%", aPlayer->incomeTax);
-    mvprintw(3, 1, "%d", aPlayer->customsTaxRevenue);
-    mvprintw(3, 17, "%d", aPlayer->salesTaxRevenue);
-    mvprintw(3, 33, "%d", aPlayer->incomeTaxRevenue);
+    printw("%-21s %-21s %s\n",
+           "Customs Duty", "Sales Tax", "Income Tax");
+    printw("%20d%% %20d%% %20d%%\n",
+           aPlayer->customsTax, aPlayer->salesTax, aPlayer->incomeTax);
+    printw("%21s %21s %21s\n",
+           FmtNum(aPlayer->customsTaxRevenue),
+           FmtNum(aPlayer->salesTaxRevenue),
+           FmtNum(aPlayer->incomeTaxRevenue));
+    printw("----------------------------------------------------------------\n");
 }
 
 
@@ -458,11 +479,12 @@ void BuyInvestments(Player *aPlayer)
 
         /* Get investment to buy. */
         CLEAR_MSG_AREA();
-        printw("BUY WHICH INVESTMENT (0 TO SKIP)? ");
+        printw("----------------------------------------------------------------\n");
+        printw("Buy which investment (0 to skip)? ");
         getnstr(input, sizeof(input));
 
         /* Parse input. */
-        switch (strtol(input, nullptr, 0))
+        switch (ParseNum(input))
         {
             case 0 :
                 done = true;
@@ -518,9 +540,9 @@ void BuyMarketplaces(Player *aPlayer)
     {
         /* Get user input. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY? ");
+        printw("How many? ");
         getnstr(input, sizeof(input));
-        marketplaceCount = strtol(input, nullptr, 0);
+        marketplaceCount = ParseNum(input);
 
         /* Validate the number of marketplaces to buy. */
         validMarketplaceCount = ValidateInvestment(aPlayer,
@@ -560,9 +582,9 @@ void BuyGrainMills(Player *aPlayer)
     {
         /* Get user input. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY? ");
+        printw("How many? ");
         getnstr(input, sizeof(input));
-        grainMillCount = strtol(input, nullptr, 0);
+        grainMillCount = ParseNum(input);
 
         /* Validate the number of grain mills to buy. */
         validGrainMillCount = ValidateInvestment(aPlayer,
@@ -594,9 +616,9 @@ void BuyFoundries(Player *aPlayer)
     {
         /* Get user input. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY? ");
+        printw("How many? ");
         getnstr(input, sizeof(input));
-        foundryCount = strtol(input, nullptr, 0);
+        foundryCount = ParseNum(input);
 
         /* Validate the number of foundries to buy. */
         validFoundryCount = ValidateInvestment(aPlayer,
@@ -628,9 +650,9 @@ void BuyShipyards(Player *aPlayer)
     {
         /* Get user input. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY? ");
+        printw("How many? ");
         getnstr(input, sizeof(input));
-        shipyardCount = strtol(input, nullptr, 0);
+        shipyardCount = ParseNum(input);
 
         /* Validate the number of shipyards to buy. */
         validShipyardCount = ValidateInvestment(aPlayer,
@@ -657,9 +679,9 @@ void BuySoldiers(Player *aPlayer)
 
     /* Get the number of soldiers to buy. */
     CLEAR_MSG_AREA();
-    printw("HOW MANY? ");
+    printw("How many? ");
     getnstr(input, sizeof(input));
-    soldierCount = strtol(input, nullptr, 0);
+    soldierCount = ParseNum(input);
     if (soldierCount <= 0)
         return;
 
@@ -684,23 +706,23 @@ void BuySoldiers(Player *aPlayer)
             soldierCount = maxSoldiers;
             CLEAR_MSG_AREA();
             if (maxSoldiers == maxNobles)
-                ShowMessage("LIMITED BY NOBLES (%d LEAD UP TO %d TROOPS).\n"
-                            "YOU CAN RECRUIT %d SOLDIERS.",
-                            aPlayer->nobleCount, 20 * aPlayer->nobleCount,
-                            soldierCount);
+                ShowMessage("Limited by nobles (%s lead up to %s troops).\n"
+                            "You can recruit %s soldiers.",
+                            FmtNum(aPlayer->nobleCount), FmtNum(20 * aPlayer->nobleCount),
+                            FmtNum(soldierCount));
             else if (maxSoldiers == maxEquip)
-                ShowMessage("LIMITED BY FOUNDRIES (%d). BUILD MORE TO EQUIP TROOPS.\n"
-                            "YOU CAN RECRUIT %d SOLDIERS.",
-                            aPlayer->foundryCount, soldierCount);
+                ShowMessage("Limited by foundries (%s). Build more to equip troops.\n"
+                            "You can recruit %s soldiers.",
+                            FmtNum(aPlayer->foundryCount), FmtNum(soldierCount));
             else if (maxSoldiers == aPlayer->serfCount)
-                ShowMessage("LIMITED BY SERFS (%d AVAILABLE TO TRAIN).\n"
-                            "YOU CAN RECRUIT %d SOLDIERS.",
-                            aPlayer->serfCount, soldierCount);
+                ShowMessage("Limited by serfs (%s available to train).\n"
+                            "You can recruit %s soldiers.",
+                            FmtNum(aPlayer->serfCount), FmtNum(soldierCount));
             else
-                ShowMessage("LIMITED BY TREASURY (%d %s).\n"
-                            "YOU CAN RECRUIT %d SOLDIERS.",
-                            aPlayer->treasury, aPlayer->country->currency,
-                            soldierCount);
+                ShowMessage("Limited by treasury (%s %s).\n"
+                            "You can recruit %s soldiers.",
+                            FmtNum(aPlayer->treasury), aPlayer->country->currency,
+                            FmtNum(soldierCount));
         }
     }
     if (soldierCount <= 0)
@@ -732,9 +754,9 @@ void BuyPalaces(Player *aPlayer)
     {
         /* Get user input. */
         CLEAR_MSG_AREA();
-        printw("HOW MANY? ");
+        printw("How many? ");
         getnstr(input, sizeof(input));
-        palaceCount = strtol(input, nullptr, 0);
+        palaceCount = ParseNum(input);
 
         /* Validate the number of palaces to buy. */
         validPalaceCount = ValidateInvestment(aPlayer,
@@ -794,8 +816,8 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
             valid = false;
             snprintf(invalidMessage,
                      sizeof(invalidMessage),
-                     "YOU ONLY HAVE %d %s!",
-                     aPlayer->treasury,
+                     "You only have %s %s!",
+                     FmtNum(aPlayer->treasury),
                      country->currency);
         }
     }
@@ -806,7 +828,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
         valid = false;
         snprintf(invalidMessage,
                  sizeof(invalidMessage),
-                 "YOU DON'T HAVE ENOUGH SERFS TO TRAIN");
+                 "You don't have enough serfs to train");
     }
 
     /*
@@ -837,7 +859,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
             valid = false;
             snprintf(invalidMessage,
                      sizeof(invalidMessage),
-                     "YOU CANNOT EQUIP AND MAINTAIN SO MANY TROOPS, %s",
+                     "You cannot equip and maintain so many troops, %s",
                      aPlayer->title);
         }
         else if (totalSoldierCount > (20 * aPlayer->nobleCount))
@@ -845,8 +867,8 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
             valid = false;
             snprintf(invalidMessage,
                      sizeof(invalidMessage),
-                     "YOU ONLY HAVE %d NOBLES TO LEAD YOUR TROOPS!",
-                     aPlayer->nobleCount);
+                     "You only have %s nobles to lead your troops!",
+                     FmtNum(aPlayer->nobleCount));
         }
     }
 

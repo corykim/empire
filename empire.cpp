@@ -27,6 +27,7 @@
 #include "cpu_strategy.h"
 #include "grain.h"
 #include "population.h"
+#include "ui.h"
 
 
 /*------------------------------------------------------------------------------
@@ -64,52 +65,52 @@ static void CPUInvestmentsPhase(Player *aPlayer);
 
 Country countryList[COUNTRY_COUNT] =
 {
-    /* AUVEYRON. */
+    /* Auveyron. */
     {
-        .name = "AUVEYRON",
-        .rulerName = "MONTAIGNE",
-        .currency = "FRANCS",
-        .titleList = { "CHEVALIER", "PRINCE", "ROI", "EMPEREUR", },
+        .name = "Auveyron",
+        .rulerName = "Montaigne",
+        .currency = "Francs",
+        .titleList = { "Chevalier", "Prince", "Roi", "Empereur", },
     },
 
-    /* BRITTANY. */
+    /* Brittany. */
     {
-        .name = "BRITTANY",
-        .rulerName = "ARTHUR",
-        .currency = "FRANCS",
-        .titleList = { "SIR", "PRINCE", "KING", "EMPEROR", },
+        .name = "Brittany",
+        .rulerName = "Arthur",
+        .currency = "Francs",
+        .titleList = { "Sir", "Prince", "King", "Emperor", },
     },
 
-    /* BAVARIA. */
+    /* Bavaria. */
     {
-        .name = "BAVARIA",
-        .rulerName = "MUNSTER",
-        .currency = "MARKS",
-        .titleList = { "RITTER", "PRINZ", "KONIG", "KAISER", },
+        .name = "Bavaria",
+        .rulerName = "Munster",
+        .currency = "Marks",
+        .titleList = { "Ritter", "Prinz", "Konig", "Kaiser", },
     },
 
-    /* QUATARA. */
+    /* Quatara. */
     {
-        .name = "QUATARA",
-        .rulerName = "KHOTAN",
-        .currency = "DINARS",
-        .titleList = { "HASID", "CALIPH", "SHEIK", "SHAH", },
+        .name = "Quatara",
+        .rulerName = "Khotan",
+        .currency = "Dinars",
+        .titleList = { "Hasid", "Caliph", "Sheik", "Shah", },
     },
 
-    /* BARCELONA. */
+    /* Barcelona. */
     {
-        .name = "BARCELONA",
-        .rulerName = "FERDINAND",
-        .currency = "PESETA",
-        .titleList = { "CABALLERO", "PRINCIPE", "REY", "EMPERADORE", },
+        .name = "Barcelona",
+        .rulerName = "Ferdinand",
+        .currency = "Peseta",
+        .titleList = { "Caballero", "Principe", "Rey", "Emperadore", },
     },
 
-    /* SVEALAND. */
+    /* Svealand. */
     {
-        .name = "SVEALAND",
-        .rulerName = "HJODOLF",
-        .currency = "KRONA",
-        .titleList = { "RIDDARE", "PRINS", "KUNG", "KEJSARE", },
+        .name = "Svealand",
+        .rulerName = "Hjodolf",
+        .currency = "Krona",
+        .titleList = { "Riddare", "Prins", "Kung", "Kejsare", },
     },
 };
 
@@ -120,12 +121,12 @@ Country countryList[COUNTRY_COUNT] =
 
 const char *weatherList[] =
 {
-    "POOR WEATHER. NO RAIN. LOCUSTS MIGRATE.",
-    "EARLY FROSTS. ARID CONDITIONS.",
-    "FLASH FLOODS. TOO MUCH RAIN.",
-    "AVERAGE WEATHER. GOOD YEAR.",
-    "FINE WEATHER. LONG SUMMER.",
-    "FANTASTIC WEATHER ! GREAT YEAR !",
+    "Poor weather. No rain. Locusts migrate.",
+    "Early frosts. Arid conditions.",
+    "Flash floods. Too much rain.",
+    "Average weather. Good year.",
+    "Fine weather. Long summer.",
+    "Fantastic weather! Great year!",
 };
 
 
@@ -135,11 +136,11 @@ const char *weatherList[] =
 
 const char *difficultyList[DIFFICULTY_COUNT] =
 {
-    "VILLAGE FOOL",
-    "LANDED PEASANT",
-    "MINOR NOBLE",
-    "ROYAL ADVISOR",
-    "MACHIAVELLI",
+    "Village Fool",
+    "Landed Peasant",
+    "Minor Noble",
+    "Royal Advisor",
+    "Machiavelli",
 };
 
 
@@ -254,15 +255,15 @@ int main(int argc, char *argv[])
                     char input[80];
                     clear();
                     move(0, 0);
-                    printw("ALL RIVAL NATIONS HAVE FALLEN!\n\n");
-                    printw("%s %s OF %s HAS CONQUERED THE KNOWN WORLD!\n\n",
+                    printw("All rival nations have fallen!\n\n");
+                    printw("%s %s of %s has conquered the known world!\n\n",
                            lastHuman->title,
                            lastHuman->name,
                            lastHuman->country->name);
-                    printw("LONG LIVE %s %s!\n\n",
+                    printw("Long live %s %s!\n\n",
                            lastHuman->title,
                            lastHuman->name);
-                    printw("<ENTER>? ");
+                    printw("<Enter>? ");
                     getnstr(input, sizeof(input));
                     gameOver = true;
                 }
@@ -303,6 +304,63 @@ int main(int argc, char *argv[])
 int RandRange(int range)
 {
     return (range > 0) ? (rand() % range) + 1 : 0;
+}
+
+
+/*
+ * Format an integer with thousands separators.  Returns a pointer to a
+ * static buffer (not thread-safe, but fine for single-threaded ncurses).
+ * Cycles through 4 buffers so multiple calls can be used in one printw().
+ *
+ *   value                  Integer to format.
+ */
+
+const char *FmtNum(int value)
+{
+    static char bufs[4][32];
+    static int  idx = 0;
+    char *buf = bufs[idx++ & 3];
+    char tmp[32];
+    int  len, pos, i, neg;
+
+    neg = (value < 0);
+    if (neg) value = -value;
+
+    snprintf(tmp, sizeof(tmp), "%d", value);
+    len = static_cast<int>(strlen(tmp));
+
+    pos = 0;
+    if (neg) buf[pos++] = '-';
+    for (i = 0; i < len; i++)
+    {
+        if (i > 0 && (len - i) % 3 == 0)
+            buf[pos++] = ',';
+        buf[pos++] = tmp[i];
+    }
+    buf[pos] = '\0';
+    return buf;
+}
+
+
+/*
+ * Parse a number string that may contain commas as thousands separators.
+ * Returns the parsed integer value.
+ *
+ *   str                    String to parse.
+ */
+
+int ParseNum(const char *str)
+{
+    char cleaned[80];
+    int  pos = 0;
+
+    for (int i = 0; str[i] && pos < 79; i++)
+    {
+        if (str[i] != ',')
+            cleaned[pos++] = str[i];
+    }
+    cleaned[pos] = '\0';
+    return static_cast<int>(strtol(cleaned, nullptr, 0));
 }
 
 
@@ -371,7 +429,7 @@ static void StartScreen()
     move(0, 20);
     printw("E M P I R E\n");
     move(7, 0);
-    printw("(ALWAYS HIT <ENTER> TO CONTINUE)");
+    printw("(Always hit <Enter> to continue)");
     refresh();
 
     /* Delay. */
@@ -397,24 +455,24 @@ static void GameSetupScreen()
     /* Get the number of players. */
     do
     {
-        printw("HOW MANY PEOPLE ARE PLAYING? ");
+        printw("How many people are playing? ");
         refresh();
         getnstr(input, sizeof(input));
-        playerCount = strtol(input, nullptr, 0);
+        playerCount = ParseNum(input);
     } while ((playerCount < 1) || (playerCount > COUNTRY_COUNT));
 
     /* Get the difficulty level. */
-    printw("\nCHOOSE THE CUNNING OF YOUR RIVALS:\n");
+    printw("\n\nChoose the cunning of your rivals:\n");
     for (i = 0; i < DIFFICULTY_COUNT; i++)
     {
         printw("  %d. %s\n", i + 1, difficultyList[i]);
     }
     do
     {
-        printw("DIFFICULTY (1-%d)? ", DIFFICULTY_COUNT);
+        printw("Difficulty (1-%d)? ", DIFFICULTY_COUNT);
         refresh();
         getnstr(input, sizeof(input));
-        difficulty = strtol(input, nullptr, 0) - 1;
+        difficulty = ParseNum(input) - 1;
     } while ((difficulty < 0) || (difficulty >= DIFFICULTY_COUNT));
     printw("\n");
 
@@ -429,11 +487,14 @@ static void GameSetupScreen()
         player->human = true;
 
         /* Get the country's ruler's name. */
-        printw("WHO IS THE RULER OF %s? ", country->name);
+        printw("Who is the ruler of %s? ", country->name);
         getnstr(player->name, sizeof(player->name));
-        for (j = 0; j < strlen(player->name); j++)
+        for (j = 0; player->name[j]; j++)
         {
-            player->name[j] = toupper(player->name[j]);
+            if (j == 0 || player->name[j - 1] == ' ')
+                player->name[j] = toupper(player->name[j]);
+            else
+                player->name[j] = tolower(player->name[j]);
         }
     }
     for (; i < COUNTRY_COUNT; i++)
@@ -505,14 +566,11 @@ static void NewYearScreen()
     /* Update weather. */
     weather = RandRange(ArraySize(weatherList));
 
-    /* Reset screen. */
-    clear();
-    move(0, 0);
-
-    /* Display the year. */
-    printw("YEAR %d\n\n", year);
-
-    /* Display the weather and delay based on message length. */
+    /* Display the year and weather. */
+    char yearTitle[32];
+    snprintf(yearTitle, sizeof(yearTitle), "Year %d", year);
+    UITitle(yearTitle);
+    printw("\n");
     ShowMessage("%s\n", weatherList[weather - 1]);
 }
 
@@ -528,13 +586,9 @@ static void SummaryScreen()
     Country *country;
     int      i;
 
-    /* Reset screen. */
-    clear();
-    move(0, 0);
-
-    /* Display summary. */
-    printw("SUMMARY\n");
-    printw("NOBLES   SOLDIERS   MERCHANTS   SERFS   LAND    PALACE\n\n");
+    UITitle("Summary");
+    printw("Nobles   Soldiers   Merchants   Serfs    Land    Palace\n");
+    printw("------   --------   ---------   ------   ------  ------\n");
     for (i = 0; i < COUNTRY_COUNT; i++)
     {
         /* Get the country and player records. */
@@ -546,18 +600,18 @@ static void SummaryScreen()
             continue;
 
         /* Display player summary. */
-        printw("%s %s OF %s\n", player->title, player->name, country->name);
-        printw(" %3d       %5d       %5d    %6d   %5d  %3d%%\n",
-               player->nobleCount,
-               player->soldierCount,
-               player->merchantCount,
-               player->serfCount,
-               player->land,
+        printw("%s %s of %s\n", player->title, player->name, country->name);
+        printw("%6s    %6s      %6s   %6s   %6s   %3d%%\n\n",
+               FmtNum(player->nobleCount),
+               FmtNum(player->soldierCount),
+               FmtNum(player->merchantCount),
+               FmtNum(player->serfCount),
+               FmtNum(player->land),
                10 * player->palaceCount);
     }
 
     /* Wait for player. */
-    printw("<ENTER>? ");
+    printw("<Enter>? ");
     getnstr(input, sizeof(input));
 }
 
@@ -611,7 +665,7 @@ static void PlayCPU(Player *aPlayer)
     move(0, 0);
 
     /* Announce player's turn. */
-    ShowMessage("ONE MOMENT -- %s %s'S TURN . . .", aPlayer->title,
+    ShowMessage("One moment -- %s %s's turn . . .", aPlayer->title,
                 aPlayer->name);
 
     /*

@@ -18,6 +18,7 @@
 
 /* Local includes. */
 #include "empire.h"
+#include "ui.h"
 
 
 /*------------------------------------------------------------------------------
@@ -58,15 +59,12 @@ void PopulationScreen(Player *aPlayer)
     /* Get the player country. */
     country = aPlayer->country;
 
-    /* Reset screen. */
-    clear();
-    move(0, 0);
-
-    /* Display the ruler and country. */
-    printw("%s %s OF %s:\n", aPlayer->title, aPlayer->name, country->name);
-
-    /* Display the year. */
-    printw("IN YEAR %d,\n\n", year);
+    /* Title. */
+    char rulerLine[160];
+    snprintf(rulerLine, sizeof(rulerLine), "%s %s of %s",
+             aPlayer->title, aPlayer->name, country->name);
+    UITitle("Population", rulerLine);
+    printw("In year %d:\n", year);
 
     /* Determine the total population. */
     population =   aPlayer->serfCount
@@ -140,36 +138,38 @@ void PopulationScreen(Player *aPlayer)
         aPlayer->armyEfficiency = 15;
 
     /* Display the number of babies born. */
-    printw(" %d BABIES WERE BORN\n", born);
+    printw(" %s babies were born\n", FmtNum(born));
 
     /* Display the number of people who died of disease. */
-    printw(" %d PEOPLE DIED OF DISEASE\n", diedDisease);
+    printw(" %s people died of disease\n", FmtNum(diedDisease));
 
     /* Display the number of people who immigrated. */
     if (immigrated > 0)
-        printw(" %d PEOPLE IMMIGRATED INTO YOUR COUNTRY.\n", immigrated);
+        printw(" %s people immigrated into your country.\n", FmtNum(immigrated));
 
     /* Display the number of people who died of starvation and malnutrition. */
     if (diedMalnutrition > 0)
-        printw(" %d PEOPLE DIED OF MALNUTRITION.\n", diedMalnutrition);
+        printw(" %s people died of malnutrition.\n", FmtNum(diedMalnutrition));
     if (diedStarvation > 0)
-        printw(" %d PEOPLE STARVED TO DEATH.\n", diedStarvation);
+        printw(" %s people starved to death.\n", FmtNum(diedStarvation));
 
     /* Display the number of soldiers who starved to death. */
     if (armyDiedStarvation > 0)
-        printw(" %d SOLDIERS STARVED TO DEATH.\n", armyDiedStarvation);
+        printw(" %s soldiers starved to death.\n", FmtNum(armyDiedStarvation));
+
+    UISeparator();
 
     /* Display the army efficiency. */
-    printw("YOUR ARMY WILL FIGHT AT %d%% EFFICIENCY.\n",
+    printw("Your army will fight at %d%% efficiency.\n",
            10 * aPlayer->armyEfficiency);
 
     /* Display the population gain or loss. */
     populationGain =
         born + immigrated - diedDisease - diedMalnutrition - diedStarvation;
     if (populationGain >= 0)
-        printw("YOUR POPULATION GAINED %d CITIZENS.\n", populationGain);
+        printw("Your population gained %s citizens.\n", FmtNum(populationGain));
     else
-        printw("YOUR POPULATION LOST %d CITIZENS.\n", -populationGain);
+        printw("Your population lost %s citizens.\n", FmtNum(-populationGain));
 
     /* Update population. */
     aPlayer->serfCount +=
@@ -177,8 +177,8 @@ void PopulationScreen(Player *aPlayer)
     aPlayer->merchantCount += merchantsImmigrated;
     aPlayer->nobleCount += noblesImmigrated;
 
-    /* Wait for player to be done. */
-    printw("\n\n<ENTER>? ");
+    UISeparator();
+    printw("<Enter>? ");
     getnstr(input, 80);
 
     /* Check if player died. */
@@ -206,12 +206,12 @@ static void PlayerDeath(Player *aPlayer)
         aPlayer->dead = true;
         clear();
         move(0, 0);
-        printw("VERY SAD NEWS ...\n\n");
-        printw("%s %s OF %s HAS BEEN ASSASSINATED\n",
+        printw("Very sad news ...\n\n");
+        printw("%s %s of %s has been assassinated\n",
             aPlayer->title,
             aPlayer->name,
             country->name);
-        printw("BY A CRAZED MOTHER WHOSE CHILD HAD STARVED TO DEATH. . .\n\n");
+        printw("by a crazed mother whose child had starved to death. . .\n\n");
     }
 
     /* Check if the player died for any other reason. */
@@ -220,27 +220,26 @@ static void PlayerDeath(Player *aPlayer)
         aPlayer->dead = true;
         clear();
         move(0, 0);
-        printw("VERY SAD NEWS ...\n\n");
+        printw("Very sad news ...\n\n");
         printw("%s %s ", aPlayer->title, aPlayer->name);
         switch(RandRange(4))
         {
             case 1 :
-                printw("HAS BEEN ASSASSINATED BY AN AMBITIOUS\nNOBLE\n\n");
+                printw("has been assassinated by an ambitious noble\n\n");
                 break;
 
             case 2 :
-                printw("HAS BEEN KILLED FROM A FALL DURING\n"
-                       "THE ANNUAL FOX-HUNT.\n\n");
+                printw("has been killed from a fall during the annual fox-hunt.\n\n");
                 break;
 
             case 3 :
-                printw("DIED OF ACUTE FOOD POISONING.\n"
-                       "THE ROYAL COOK WAS SUMMARILY EXECUTED.\n\n");
+                printw("died of acute food poisoning.\n"
+                       "The royal cook was summarily executed.\n\n");
                 break;
 
             case 4 :
             default :
-                printw("PASSED AWAY THIS WINTER FROM A WEAK HEART.\n\n");
+                printw("passed away this winter from a weak heart.\n\n");
                 break;
         }
     }
@@ -249,9 +248,8 @@ static void PlayerDeath(Player *aPlayer)
     if (aPlayer->dead)
     {
         char input[80];
-        printw("THE OTHER NATION-STATES HAVE SENT REPRESENTATIVES TO THE\n");
-        printw("FUNERAL\n\n");
-        printw("<ENTER>? ");
+        printw("The other nation-states have sent representatives to the funeral\n\n");
+        printw("<Enter>? ");
         getnstr(input, sizeof(input));
     }
 }

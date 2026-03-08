@@ -21,6 +21,7 @@
 /* Local includes. */
 #include "empire.h"
 #include "cpu_strategy.h"
+#include "ui.h"
 
 
 /*------------------------------------------------------------------------------
@@ -86,9 +87,9 @@ void AttackScreen(Player *aPlayer)
 
         /* Get country to attack. */
         CLEAR_MSG_AREA();
-        printw("ATTACK WHICH COUNTRY (0 TO SKIP)? ");
+        printw("Attack which country (0 to skip)? ");
         getnstr(input, sizeof(input));
-        country = strtol(input, nullptr, 0);
+        country = ParseNum(input);
 
         /* Parse input. */
         if (country == 0)
@@ -105,7 +106,7 @@ void AttackScreen(Player *aPlayer)
             if (targetPlayer == aPlayer)
             {
                 move(15, 0);
-                ShowMessage("%s, THAT IS YOUR OWN COUNTRY (#%d)!",
+                ShowMessage("%s, that is your own country (#%d)!",
                             aPlayer->title, country);
                 continue;
             }
@@ -119,8 +120,8 @@ void AttackScreen(Player *aPlayer)
         else
         {
             CLEAR_MSG_AREA();
-            ShowMessage("DUE TO A SHORTAGE OF NOBLES , YOU ARE LIMITED TO ONLY\n"
-                        " %d ATTACKS PER YEAR", maxAttacks);
+            ShowMessage("Due to a shortage of nobles, you are limited to only\n"
+                        " %d attacks per year", maxAttacks);
         }
     }
 }
@@ -245,7 +246,7 @@ static void SetBattleTarget(Battle *aBattle, Player *aTargetPlayer)
         aBattle->targetLand = barbarianLand;
         snprintf(aBattle->targetSoldierLabel,
                  sizeof(aBattle->targetSoldierLabel),
-                 "PAGAN BARBARIANS");
+                 "Pagan Barbarians");
         aBattle->targetSoldierCount =
               RandRange(3 * RandRange(aBattle->soldierCount))
             + RandRange(RandRange(3 * aBattle->soldierCount / 2));
@@ -310,8 +311,8 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
     if ((aTargetPlayer != nullptr) && (year < 3))
     {
         CLEAR_MSG_AREA();
-        ShowMessage("DUE TO INTERNATIONAL TREATY, YOU CANNOT ATTACK OTHER\n"
-                    "NATIONS UNTIL THE THIRD YEAR.");
+        ShowMessage("Due to international treaty, you cannot attack\n"
+                    "other nations until the third year.");
         return;
     }
 
@@ -319,7 +320,7 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
     if ((aTargetPlayer == nullptr) && (barbarianLand == 0))
     {
         CLEAR_MSG_AREA();
-        ShowMessage("ALL BARBARIAN LANDS HAVE BEEN SEIZED\n");
+        ShowMessage("All barbarian lands have been seized\n");
         return;
     }
 
@@ -392,38 +393,39 @@ static void DisplayCPUBattleResults(Battle *aBattle)
 
     /* Display battle results. */
     clear();
-    mvprintw(1, 23, "BATTLE OVER\n\n");
+    mvprintw(0, 0, "----------------------------------------------------------------");
+    mvprintw(1, 23, "Battle Over\n\n");
     if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
-        printw("THE COUNTRY OF %s WAS OVERUN BY %s %s!\n",
+        printw("The country of %s was overrun by %s %s!\n",
                targetPlayer->country->name,
                player->title,
                player->name);
     }
     else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
     {
-        printw("%s %s SEIZED ALL BARBARIAN LANDS!\n",
+        printw("%s %s seized all barbarian lands!\n",
                player->title,
                player->name);
     }
     else if (aBattle->targetDefeated)
     {
-        printw("THE FORCES OF %s %s WERE VICTORIOUS.\n",
+        printw("The forces of %s %s were victorious.\n",
                player->title,
                player->name);
-        printw(" %d ACRES WERE SEIZED", landCaptured);
+        printw(" %s acres were seized", FmtNum(landCaptured));
         if (targetPlayer != nullptr)
-            printw(" FROM %s.\n", targetPlayer->country->name);
+            printw(" from %s.\n", targetPlayer->country->name);
         else
-            printw(" FROM THE BARBARIANS.\n");
+            printw(" from the barbarians.\n");
     }
     else
     {
-        printw("%s %s WAS DEFEATED", player->title, player->name);
+        printw("%s %s was defeated", player->title, player->name);
         if (targetPlayer != nullptr)
-            printw(" BY %s.\n", targetPlayer->country->name);
+            printw(" by %s.\n", targetPlayer->country->name);
         else
-            printw(" BY THE BARBARIANS.\n");
+            printw(" by the barbarians.\n");
         if (landCaptured > 2)
             landCaptured /= RandRange(3);
         else
@@ -442,7 +444,7 @@ static void DisplayCPUBattleResults(Battle *aBattle)
     if ((targetPlayer != nullptr && targetPlayer->human) ||
         (player != nullptr && player->human))
     {
-        printw("\n<ENTER>? ");
+        printw("\n<Enter>? ");
         char input[80];
         getnstr(input, sizeof(input));
     }
@@ -479,15 +481,15 @@ static void GetSoldiersToAttack(Battle *aBattle)
     while (!soldiersToAttackCountValid)
     {
         CLEAR_MSG_AREA();
-        printw("HOW MANY OF YOUR %d SOLDIERS TO SEND? ",
-               player->soldierCount);
+        printw("How many of your %s soldiers to send? ",
+               FmtNum(player->soldierCount));
         getnstr(input, sizeof(input));
-        soldiersToAttackCount = strtol(input, nullptr, 0);
+        soldiersToAttackCount = ParseNum(input);
         if (soldiersToAttackCount > player->soldierCount)
         {
             CLEAR_MSG_AREA();
-            ShowMessage("YOU ONLY HAVE %d SOLDIERS!",
-                        player->soldierCount);
+            ShowMessage("You only have %s soldiers!",
+                        FmtNum(player->soldierCount));
         }
         else
         {
@@ -540,14 +542,15 @@ static void RunBattle(Battle *aBattle)
     {
         /* Show soldiers remaining. */
         clear();
-        mvprintw(2, 41, "SOLDIERS REMAINING:");
+        mvprintw(1, 0, "----------------------------------------------------------------");
+        mvprintw(2, 41, "Soldiers Remaining:");
         mvprintw(4, 13, "%s:", aBattle->soldierLabel);
         mvprintw(5, 13, "%s:", aBattle->targetSoldierLabel);
-        mvprintw(4, 51, "%d", soldierCount);
-        mvprintw(5, 51, "%d", targetSoldierCount);
+        mvprintw(4, 51, "%s", FmtNum(soldierCount));
+        mvprintw(5, 51, "%s", FmtNum(targetSoldierCount));
         if (targetSerfs)
         {
-            mvprintw(8, 0, "%s'S SERFS ARE FORCED TO DEFEND THEIR COUNTRY!",
+            mvprintw(8, 0, "%s's serfs are forced to defend their country!",
                      targetPlayer->country->name);
         }
         refresh();
@@ -646,52 +649,53 @@ static void DisplayBattleResults(Battle *aBattle)
 
     /* Display battle results. */
     clear();
-    mvprintw(1, 23, "BATTLE OVER\n\n");
+    mvprintw(0, 0, "----------------------------------------------------------------");
+    mvprintw(1, 23, "Battle Over\n\n");
     if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
         /* Target player overrun. */
-        printw("THE COUNTRY OF %s WAS OVERUN!\n", targetPlayer->country->name);
-        printw("ALL ENEMY NOBLES WERE SUMMARILY EXECUTED!\n\n\n");
-        printw("THE REMAINING ENEMY SOLDIERS "
-               "WERE IMPRISONED. ALL ENEMY SERFS\n");
-        printw("HAVE PLEDGED OATHS OF FEALTY TO "
-               "YOU, AND SHOULD NOW BE CONSID-\n");
-        printw("ERED TO BE YOUR PEOPLE TOO. ALL "
-               "ENEMY MERCHANTS FLED THE COUN-\n");
-        printw("TRY. UNFORTUNATELY, ALL ENEMY "
-               "ASSETS WERE SACKED AND DESTROYED\n");
-        printw("BY YOUR REVENGEFUL ARMY IN A "
-               "DRUNKEN RIOT FOLLOWING THE VICTORY\n");
-        printw("CELEBRATION.\n");
+        printw("The country of %s was overrun!\n", targetPlayer->country->name);
+        printw("All enemy nobles were summarily executed!\n\n\n");
+        printw("The remaining enemy soldiers "
+               "were imprisoned. All enemy serfs\n");
+        printw("have pledged oaths of fealty to "
+               "you, and should now be consid-\n");
+        printw("ered to be your people too. All "
+               "enemy merchants fled the coun-\n");
+        printw("try. Unfortunately, all enemy "
+               "assets were sacked and destroyed\n");
+        printw("by your revengeful army in a "
+               "drunken riot following the victory\n");
+        printw("celebration.\n");
     }
     else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
     {
-        printw("ALL BARBARIAN LANDS HAVE BEEN SEIZED\n");
-        printw("THE REMAINING BARBARIANS FLED\n");
+        printw("All barbarian lands have been seized\n");
+        printw("The remaining barbarians fled\n");
     }
     else if (aBattle->targetDefeated)
     {
         /* Player won. */
-        printw("THE FORCES OF %s %s WERE VICTORIOUS.\n",
+        printw("The forces of %s %s were victorious.\n",
                player->title,
                player->name);
-        printw(" %d ACRES WERE SEIZED.\n", landCaptured);
+        printw(" %s acres were seized.\n", FmtNum(landCaptured));
     }
     else
     {
         /* Player lost. */
-        printw("%s %s WAS DEFEATED.\n", player->title, player->name);
+        printw("%s %s was defeated.\n", player->title, player->name);
         if (landCaptured > 2)
         {
             landCaptured /= RandRange(3);
-            printw("IN YOUR DEFEAT YOU NEVERTHELESS "
-                   "MANAGED TO CAPTURE %d ACRES.\n",
-                   landCaptured);
+            printw("In your defeat you nevertheless "
+                   "managed to capture %s acres.\n",
+                   FmtNum(landCaptured));
         }
         else
         {
             landCaptured = 0;
-            printw(" 0 ACRES WERE SEIZED.\n");
+            printw(" 0 acres were seized.\n");
         }
     }
 
@@ -704,7 +708,8 @@ static void DisplayBattleResults(Battle *aBattle)
     }
 
     /* Wait for player. */
-    printw("<ENTER>? ");
+    printw("\n----------------------------------------------------------------\n");
+    printw("<Enter>? ");
     getnstr(input, sizeof(input));
 
     /* Update battle information. */
@@ -727,8 +732,8 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->serfCount);
         aTargetPlayer->serfCount -= sackCount;
-        printw(" %d ENEMY SERFS WERE BEATEN AND MURDERED BY YOUR TROOPS!\n",
-               sackCount);
+        printw(" %s enemy serfs were beaten and murdered by your troops!\n",
+               FmtNum(sackCount));
     }
 
     /* Sack marketplaces. */
@@ -736,7 +741,7 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->marketplaceCount);
         aTargetPlayer->marketplaceCount -= sackCount;
-        printw(" %d ENEMY MARKETPLACES WERE DESTROYED\n", sackCount);
+        printw(" %s enemy marketplaces were destroyed\n", FmtNum(sackCount));
     }
 
     /* Sack grain. */
@@ -744,7 +749,7 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->grain);
         aTargetPlayer->grain -= sackCount;
-        printw(" %d BUSHELS OF ENEMY GRAIN WERE BURNED\n", sackCount);
+        printw(" %s bushels of enemy grain were burned\n", FmtNum(sackCount));
     }
 
     /* Sack grain mills. */
@@ -752,7 +757,7 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->grainMillCount);
         aTargetPlayer->grainMillCount -= sackCount;
-        printw(" %d ENEMY GRAIN MILLS WERE SABOTAGED\n", sackCount);
+        printw(" %s enemy grain mills were sabotaged\n", FmtNum(sackCount));
     }
 
     /* Sack foundries. */
@@ -760,7 +765,7 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->foundryCount);
         aTargetPlayer->foundryCount -= sackCount;
-        printw(" %d ENEMY FOUNDRIES WERE LEVELED\n", sackCount);
+        printw(" %s enemy foundries were leveled\n", FmtNum(sackCount));
     }
 
     /* Sack shipyards. */
@@ -768,7 +773,7 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->shipyardCount);
         aTargetPlayer->shipyardCount -= sackCount;
-        printw(" %d ENEMY SHIPYARDS WERE OVER-RUN\n", sackCount);
+        printw(" %s enemy shipyards were over-run\n", FmtNum(sackCount));
     }
 
     /* Sack nobles. */
@@ -776,7 +781,7 @@ static void Sack(Player *aTargetPlayer)
     {
         sackCount = RandRange(aTargetPlayer->nobleCount / 2);
         aTargetPlayer->nobleCount -= sackCount;
-        printw(" %d ENEMY NOBLES WERE SUMMARILY EXECUTED\n", sackCount);
+        printw(" %s enemy nobles were summarily executed\n", FmtNum(sackCount));
     }
 }
 
@@ -794,18 +799,19 @@ static void DrawAttackScreen(Player *aPlayer)
     int         playerLand;
     int         i;
 
-    /* Reset screen. */
-    clear();
-    move(0, 0);
+    char rulerLine[160];
+    snprintf(rulerLine, sizeof(rulerLine), "%s %s of %s",
+             aPlayer->title, aPlayer->name, aPlayer->country->name);
+    UITitle("Attack", rulerLine);
 
     /* Display land holdings. */
-    printw("LAND HOLDINGS:\n\n");
+    printw("  #  Country          Land\n");
     for (i = 0; i < COUNTRY_COUNT + 1; i++)
     {
         /* Get the country name and player land.  Don't display dead players. */
         if (i == 0)
         {
-            countryName = "BARBARIANS";
+            countryName = "Barbarians";
             playerLand = barbarianLand;
         }
         else
@@ -818,9 +824,9 @@ static void DrawAttackScreen(Player *aPlayer)
             playerLand = player->land;
         }
 
-        /* Display land holdings. */
-        printw(" %d)  %-11s %d\n", i + 1, countryName, playerLand);
+        printw("  %d) %-14s %6s\n", i + 1, countryName, FmtNum(playerLand));
     }
+    UISeparator();
 }
 
 

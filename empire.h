@@ -243,6 +243,12 @@ void CPUAttackScreen(Player *aPlayer);
 
 void ComputeRevenues(Player *aPlayer);
 
+void ShowMessage(const char *fmt, ...);
+
+const char *FmtNum(int value);
+
+int ParseNum(const char *str);
+
 
 /*------------------------------------------------------------------------------
  *
