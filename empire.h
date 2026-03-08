@@ -227,6 +227,7 @@ extern int barbarianLand;
 extern int done;
 extern int difficulty;
 extern bool omniscient;
+extern bool fastMode;
 
 
 /*------------------------------------------------------------------------------

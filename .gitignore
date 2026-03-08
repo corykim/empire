@@ -4,6 +4,9 @@ empire_debug
 *.o
 *.d
 
+# Logs
+*.log
+
 # macOS
 .DS_Store
 

@@ -276,11 +276,6 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
     aPlayer->attackCount++;
     int soldiersLost = aBattle->soldiersToAttackCount - aBattle->soldierCount;
     aPlayer->soldierCount -= soldiersLost;
-    GameLog("  Battle: sent %d, lost %d, captured %d acres%s\n",
-            aBattle->soldiersToAttackCount, soldiersLost,
-            aBattle->landCaptured,
-            aBattle->targetOverrun ? " (OVERRUN)" :
-            aBattle->targetDefeated ? " (victory)" : " (defeated)");
     if (aTargetPlayer != nullptr)
     {
         if (aBattle->targetSerfs)
@@ -293,6 +288,14 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
         aTargetPlayer->land -= aBattle->landCaptured;
     else
         barbarianLand -= aBattle->landCaptured;
+    GameLog("  Battle vs %s: sent %d, lost %d, captured %d acres%s\n",
+            aTargetPlayer ? aTargetPlayer->country->name : "Barbarians",
+            aBattle->soldiersToAttackCount, soldiersLost,
+            aBattle->landCaptured,
+            aBattle->targetOverrun ? " (OVERRUN)" :
+            aBattle->targetDefeated ? " (victory)" : " (defeated)");
+    GameLog("    Land: %d  Soldiers: %d\n",
+            aPlayer->land, aPlayer->soldierCount);
     if ((aTargetPlayer != nullptr) && aBattle->targetOverrun)
     {
         aPlayer->serfCount += aTargetPlayer->serfCount;
@@ -469,7 +472,8 @@ static void DisplayCPUBattleResults(Battle *aBattle)
     else
     {
         refresh();
-        usleep(2 * DELAY_TIME);
+        if (!fastMode)
+            usleep(2 * DELAY_TIME);
     }
 
     /* Update battle information. */
@@ -591,7 +595,8 @@ static void RunBattle(Battle *aBattle)
             if (smaller < 1) smaller = 1;
             roundDelayUs = static_cast<int>(37500.0 * sqrt(static_cast<double>(smaller)));
         }
-        usleep(roundDelayUs);
+        if (!fastMode)
+            usleep(roundDelayUs);
 
         /*
          * Determine how many soldiers were killed in this round, who won the

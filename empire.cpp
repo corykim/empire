@@ -165,6 +165,7 @@ int barbarianLand = 6000;
 int gameOver = false;
 int difficulty = 2;
 bool omniscient = false;
+bool fastMode = false;
 
 
 /*------------------------------------------------------------------------------
@@ -189,6 +190,11 @@ int main(int argc, char *argv[])
             strcmp(argv[a], "-l") == 0)
         {
             logging = true;
+        }
+        if (strcmp(argv[a], "--fast") == 0 ||
+            strcmp(argv[a], "-f") == 0)
+        {
+            fastMode = true;
         }
     }
 
@@ -417,11 +423,14 @@ void ShowMessage(const char *fmt, ...)
         }
     }
 
-    /* Delay 200ms per word, minimum DELAY_TIME. */
-    delayUs = words * 200000;
-    if (delayUs < DELAY_TIME)
-        delayUs = DELAY_TIME;
-    usleep(delayUs);
+    /* Delay 200ms per word, minimum DELAY_TIME.  Skipped in fast mode. */
+    if (!fastMode)
+    {
+        delayUs = words * 200000;
+        if (delayUs < DELAY_TIME)
+            delayUs = DELAY_TIME;
+        usleep(delayUs);
+    }
 }
 
 
@@ -448,7 +457,8 @@ static void StartScreen()
     refresh();
 
     /* Delay. */
-    usleep(DELAY_TIME);
+    if (!fastMode)
+        usleep(DELAY_TIME);
 }
 
 
@@ -477,11 +487,12 @@ static void GameSetupScreen()
     } while ((playerCount < 1) || (playerCount > COUNTRY_COUNT));
 
     /* Get the difficulty level. */
-    printw("\n\nChoose the cunning of your rivals:\n");
+    printw("\n\nChoose the cunning of your rivals:\n\n");
     for (i = 0; i < DIFFICULTY_COUNT; i++)
     {
         printw("  %d. %s\n", i + 1, difficultyList[i]);
     }
+    printw("\n");
     do
     {
         printw("Difficulty (1-%d)? ", DIFFICULTY_COUNT);
@@ -596,38 +607,52 @@ static void NewYearScreen()
 
 static void SummaryScreen()
 {
-    char     input[80];
-    Player  *player;
-    Country *country;
-    int      i;
+    char    input[80];
+    Player *player;
+    int     i;
 
     UITitle("Summary");
-    UIColor(UIC_HEADING);
-    printw("Nobles   Soldiers   Merchants   Serfs    Land    Palace\n");
-    printw("------   --------   ---------   ------   ------  ------\n");
-    UIColorOff();
+
+    /* Collect and sort living players by land descending. */
+    int sorted[COUNTRY_COUNT];
+    int livingCount = 0;
     for (i = 0; i < COUNTRY_COUNT; i++)
     {
-        /* Get the country and player records. */
-        country = &(countryList[i]);
-        player = &(playerList[i]);
-
-        /* Skip dead players. */
-        if (player->dead)
+        if (playerList[i].dead)
             continue;
+        sorted[livingCount++] = i;
+    }
+    for (int a = 0; a < livingCount - 1; a++)
+        for (int b = a + 1; b < livingCount; b++)
+            if (playerList[sorted[b]].land > playerList[sorted[a]].land)
+            {
+                int tmp = sorted[a];
+                sorted[a] = sorted[b];
+                sorted[b] = tmp;
+            }
 
-        /* Display player summary. */
-        printw("%s %s of %s\n", player->title, player->name, country->name);
-        printw("%6s    %6s      %6s   %6s   %6s   %3d%%\n\n",
-               FmtNum(player->nobleCount),
-               FmtNum(player->soldierCount),
-               FmtNum(player->merchantCount),
-               FmtNum(player->serfCount),
-               FmtNum(player->land),
-               10 * player->palaceCount);
+    /* Draw each player — sorted, compact, two lines each. */
+    for (int s = 0; s < livingCount; s++)
+    {
+        player = &playerList[sorted[s]];
+
+        /* Line 1: player identity + land. */
+        UIColor(UIC_HEADING);
+        printw(" %s %s of %s", player->title, player->name,
+               player->country->name);
+        UIColorOff();
+        printw("  %s acres\n", FmtNum(player->land));
+
+        /* Line 2: stats. */
+        printw("   %4s nobles", FmtNum(player->nobleCount));
+        printw("  %5s soldiers", FmtNum(player->soldierCount));
+        printw("  %5s merchants", FmtNum(player->merchantCount));
+        printw("  %5s serfs", FmtNum(player->serfCount));
+        printw("  %3d%% palace\n", 10 * player->palaceCount);
     }
 
     /* Wait for player. */
+    UISeparator();
     printw("<Enter>? ");
     getnstr(input, sizeof(input));
 }
@@ -701,8 +726,10 @@ static void PlayCPU(Player *aPlayer)
             aPlayer->title, aPlayer->name);
     GameLog("================================================================"
             "================\n");
+    printw("\n\n");
     ShowMessage("One moment -- %s %s's turn . . .", aPlayer->title,
                 aPlayer->name);
+    printw("\n");
 
     /*
      * Run the CPU through the same economic pipeline as a human player:
@@ -740,6 +767,9 @@ static void CPUGrainPhase(Player *aPlayer)
 {
     /* Shared grain computation (rats, harvest, needs). */
     ComputeGrainPhase(aPlayer);
+
+    /* Trade grain and land via the strategy. */
+    cpuStrategies[difficulty]->manageGrainTrade(aPlayer);
 
     /* CPU feeds army at the required amount. */
     aPlayer->armyGrainFeed = MIN(aPlayer->armyGrainNeed, aPlayer->grain);

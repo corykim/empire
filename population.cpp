@@ -75,6 +75,12 @@ void PopulationScreen(Player *aPlayer)
         UIColor(UIC_GOOD);
         printw(" %s people immigrated into your country.\n",
                FmtNum(result.immigrated));
+        if (result.merchantsImmigrated > 0)
+            printw("   Including %s merchants.\n",
+                   FmtNum(result.merchantsImmigrated));
+        if (result.noblesImmigrated > 0)
+            printw("   Including %s nobles.\n",
+                   FmtNum(result.noblesImmigrated));
         UIColorOff();
     }
 

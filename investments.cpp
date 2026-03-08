@@ -655,7 +655,6 @@ void BuySoldiers(Player *aPlayer)
 void BuyPalaces(Player *aPlayer)
 {
     char     input[80];
-    int      newNobleCount;
     int      palaceCount;
     bool     validPalaceCount;
 

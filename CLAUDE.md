@@ -120,3 +120,4 @@ Investment costs in `cpu_strategy.h` and `investments.cpp`:
 - Soldier purchase caps should explain the limiting factor (nobles, foundries, serfs, treasury)
 - Prefer clean code patterns: strategy pattern, no switch-on-difficulty, no duplicated strings
 - Use generalized UI helpers (UITitle, UISeparator) rather than hand-coded layout per screen
+- Always gitignore log files and build artifacts

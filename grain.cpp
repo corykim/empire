@@ -105,11 +105,12 @@ static void DrawGrainScreen(Player *aPlayer)
     UIColor(UIC_HEADING);
     printw("Harvest   Reserve   People     Army       Treasury\n");
     UIColorOff();
-    printw("%7s   %7s   %7s   %7s    %7s %s\n",
+    printw("%7s   %7s   %7s   %7s",
            FmtNum(aPlayer->grainHarvest),
            FmtNum(aPlayer->grain),
            FmtNum(aPlayer->peopleGrainNeed),
-           FmtNum(aPlayer->armyGrainNeed),
+           FmtNum(aPlayer->armyGrainNeed));
+    printw("    %7s %s\n",
            FmtNum(aPlayer->treasury),
            country->currency);
     UISeparator();
@@ -291,15 +292,9 @@ static void BuyGrain(Player *aPlayer)
         }
     } while (!validGrain);
 
-    /* Update player and seller state. */
-    aPlayer->grain += grain;
-    aPlayer->treasury -= totalPrice;
-    seller->treasury += grain * seller->grainPrice;
-    seller->grainForSale -= grain;
+    /* Execute trade using shared function. */
+    TradeGrain(aPlayer, seller, grain);
     UpdateTreasuryDisplay(aPlayer);
-    GameLog("  Bought %d grain from %s (-%d)  Treasury: %d  Grain: %d\n",
-            grain, seller->country->name, totalPrice,
-            aPlayer->treasury, aPlayer->grain);
 }
 
 
@@ -354,15 +349,8 @@ static void SellGrain(Player *aPlayer)
         }
     } while (!validGrainPrice);
 
-    /* Update the total grain for sale and price. */
-    aPlayer->grainPrice =
-          (  (aPlayer->grainPrice * static_cast<float>(aPlayer->grainForSale))
-           + (grainPrice * static_cast<float>(grainToSell)))
-        / static_cast<float>(aPlayer->grainForSale + grainToSell);
-    aPlayer->grainForSale += grainToSell;
-    aPlayer->grain -= grainToSell;
-    GameLog("  Sell %d grain at %.2f  Grain: %d\n",
-            grainToSell, grainPrice, aPlayer->grain);
+    /* List grain using shared function. */
+    ListGrainForSale(aPlayer, grainToSell, grainPrice);
 }
 
 
@@ -389,7 +377,8 @@ static void SellLand(Player *aPlayer)
 
         /* Get the number of acres to sell. */
         CLEAR_MSG_AREA();
-        printw("How many acres will you sell? ");
+        printw("How many of your %s acres will you sell? ",
+               FmtNum(aPlayer->land));
         getnstr(input, sizeof(input));
         landToSell = ParseNum(input);
         if (landToSell < 0)
@@ -406,13 +395,9 @@ static void SellLand(Player *aPlayer)
         }
     } while (!validLandToSell);
 
-    /* Update land and treasury. */
-    aPlayer->treasury += 2 * landToSell;
-    aPlayer->land -= landToSell;
-    barbarianLand += landToSell;
+    /* Sell land using shared function. */
+    SellLandToBarbarians(aPlayer, landToSell);
     UpdateTreasuryDisplay(aPlayer);
-    GameLog("  Sell %d acres (+%d)  Treasury: %d  Land: %d\n",
-            landToSell, 2 * landToSell, aPlayer->treasury, aPlayer->land);
 }
 
 
@@ -447,7 +432,8 @@ static void FeedCountry(Player *aPlayer)
             CLEAR_MSG_AREA();
             ShowMessage("You cannot give your army more grain than you have!");
         }
-        else if (grainToFeed > aPlayer->armyGrainNeed * 2)
+        else if (grainToFeed > aPlayer->armyGrainNeed * 2 &&
+                 grainToFeed - aPlayer->armyGrainNeed > 10)
         {
             CLEAR_MSG_AREA();
             printw("Your army needs %s bushels. Give %s? (Y/N) ",
@@ -492,7 +478,8 @@ static void FeedCountry(Player *aPlayer)
             CLEAR_MSG_AREA();
             ShowMessage("You must release at least 10%% of the stored grain");
         }
-        else if (grainToFeed > aPlayer->peopleGrainNeed * 4)
+        else if (grainToFeed > aPlayer->peopleGrainNeed * 4 &&
+                 grainToFeed - aPlayer->peopleGrainNeed > 10)
         {
             CLEAR_MSG_AREA();
             printw("Your people need %s bushels. Give %s? (Y/N) ",

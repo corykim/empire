@@ -22,19 +22,7 @@
 #define __CPU_STRATEGY_H__
 
 #include "empire.h"
-
-
-/*------------------------------------------------------------------------------
- *
- * Investment costs (must match investmentCost[] in investments.cpp).
- */
-
-#define COST_MARKETPLACE  1000
-#define COST_GRAIN_MILL   2000
-#define COST_FOUNDRY      7000
-#define COST_SHIPYARD     8000
-#define COST_SOLDIER      8
-#define COST_PALACE       5000
+#include "economy.h"
 
 #define TARGET_NONE       -1
 #define TARGET_BARBARIANS -2
@@ -51,9 +39,11 @@ public:
     const char *name;
     int         attackChanceBase;
     int         attackChancePerYear;
+    int         errorPct;       /* Deviation from optimal: 0=perfect, 50=random */
 
-    CPUStrategy(const char *aName, int aBase, int aPerYear)
-        : name(aName), attackChanceBase(aBase), attackChancePerYear(aPerYear) {}
+    CPUStrategy(const char *aName, int aBase, int aPerYear, int aError)
+        : name(aName), attackChanceBase(aBase), attackChancePerYear(aPerYear),
+          errorPct(aError) {}
 
     virtual ~CPUStrategy() {}
 
@@ -64,11 +54,13 @@ public:
     virtual void manageInvestments(Player *aPlayer) = 0;
     virtual void manageTaxes(Player *aPlayer) = 0;
 
+    /* Grain/land trading — default uses errorPct, overridable. */
+    virtual void manageGrainTrade(Player *aPlayer);
+
 protected:
     /* Shared helpers available to all derived classes. */
-    int  cpuBuy(Player *aPlayer, int *count, int desired, int cost);
-    void cpuBuySoldiers(Player *aPlayer, int desired);
-    void cpuInvest(Player *aPlayer, int wastePct);
+    int  deviate(int optimal, int maxVal);
+    void cpuInvest(Player *aPlayer);
 };
 
 
@@ -82,7 +74,7 @@ protected:
 class VillageFool : public CPUStrategy
 {
 public:
-    VillageFool() : CPUStrategy("VILLAGE FOOL", 20, 2) {}
+    VillageFool() : CPUStrategy("VILLAGE FOOL", 20, 2, 50) {}
 
     int  selectTarget(Player *aPlayer, int *livingIndices,
                       int livingCount) override;
@@ -102,7 +94,7 @@ public:
 class LandedPeasant : public CPUStrategy
 {
 public:
-    LandedPeasant() : CPUStrategy("LANDED PEASANT", 35, 2) {}
+    LandedPeasant() : CPUStrategy("LANDED PEASANT", 35, 2, 35) {}
 
     int  selectTarget(Player *aPlayer, int *livingIndices,
                       int livingCount) override;
@@ -122,7 +114,7 @@ public:
 class MinorNoble : public CPUStrategy
 {
 public:
-    MinorNoble() : CPUStrategy("MINOR NOBLE", 50, 2) {}
+    MinorNoble() : CPUStrategy("MINOR NOBLE", 50, 2, 20) {}
 
     int  selectTarget(Player *aPlayer, int *livingIndices,
                       int livingCount) override;
@@ -142,7 +134,7 @@ public:
 class RoyalAdvisor : public CPUStrategy
 {
 public:
-    RoyalAdvisor() : CPUStrategy("ROYAL ADVISOR", 65, 2) {}
+    RoyalAdvisor() : CPUStrategy("ROYAL ADVISOR", 65, 2, 10) {}
 
     int  selectTarget(Player *aPlayer, int *livingIndices,
                       int livingCount) override;
@@ -162,13 +154,14 @@ public:
 class Machiavelli : public CPUStrategy
 {
 public:
-    Machiavelli() : CPUStrategy("MACHIAVELLI", 80, 2) {}
+    Machiavelli() : CPUStrategy("MACHIAVELLI", 80, 2, 5) {}
 
     int  selectTarget(Player *aPlayer, int *livingIndices,
                       int livingCount) override;
     int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) override;
     void manageInvestments(Player *aPlayer) override;
     void manageTaxes(Player *aPlayer) override;
+    void manageGrainTrade(Player *aPlayer) override;
 };
 
 
