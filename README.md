@@ -4,6 +4,8 @@ TRS-80 Empire game using ncurses.
 
 This fork is heavily refactored from the original C codebase, migrated to C++17, and extended with CPU opponents, a difficulty system, and numerous gameplay and UI improvements.
 
+See [PLAYING.md](PLAYING.md) for how to play, strategy tips, and a detailed breakdown of the game systems.
+
 ## Prerequisites
 
 - A C++17 compiler (`g++` or `clang++`)
