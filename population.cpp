@@ -14,6 +14,7 @@
 /* System includes. */
 #include <math.h>
 #include <ncurses.h>
+#include <unistd.h>
 
 /* Local includes. */
 #include "empire.h"
@@ -73,7 +74,7 @@ void PopulationScreen(Player *aPlayer)
                  + aPlayer->nobleCount;
 
     /* Determine the number of babies born. */
-    born = RandRange(((int) (((float) population) / 9.5)));
+    born = RandRange((static_cast<int>(static_cast<float>(population) / 9.5)));
 
     /* Determine the number of people who died from disease. */
     diedDisease = RandRange(population / 22);
@@ -94,12 +95,12 @@ void PopulationScreen(Player *aPlayer)
     aPlayer->diedStarvation = diedStarvation;
 
     /* Determine the number of people who immigrated. */
-    if (((float) aPlayer->peopleGrainFeed) >
-        (1.5 * ((float) aPlayer->peopleGrainNeed)))
+    if (static_cast<float>(aPlayer->peopleGrainFeed) >
+        (1.5 * static_cast<float>(aPlayer->peopleGrainNeed)))
     {
         immigrated =
-              ((int) sqrt(aPlayer->peopleGrainFeed - aPlayer->peopleGrainNeed))
-            - RandRange((int) (1.5 * ((float) aPlayer->customsTax)));
+              static_cast<int>(sqrt(aPlayer->peopleGrainFeed - aPlayer->peopleGrainNeed))
+            - RandRange(static_cast<int>(1.5 * static_cast<float>(aPlayer->customsTax)));
         if (immigrated > 0)
             immigrated = RandRange(((2 * immigrated) + 1));
         else
@@ -202,7 +203,7 @@ static void PlayerDeath(Player *aPlayer)
     if ((aPlayer->diedStarvation > 0) &&
         (RandRange(aPlayer->diedStarvation) > RandRange(110)))
     {
-        aPlayer->dead = TRUE;
+        aPlayer->dead = true;
         clear();
         move(0, 0);
         printw("VERY SAD NEWS ...\n\n");
@@ -216,7 +217,7 @@ static void PlayerDeath(Player *aPlayer)
     /* Check if the player died for any other reason. */
     if (RandRange(100) == 1)
     {
-        aPlayer->dead = TRUE;
+        aPlayer->dead = true;
         clear();
         move(0, 0);
         printw("VERY SAD NEWS ...\n\n");
@@ -247,10 +248,11 @@ static void PlayerDeath(Player *aPlayer)
     /* If the player died, display the funeral. */
     if (aPlayer->dead)
     {
+        char input[80];
         printw("THE OTHER NATION-STATES HAVE SENT REPRESENTATIVES TO THE\n");
-        printw("FUNERAL\n");
-        refresh();
-        sleep(2 * DELAY_TIME);
+        printw("FUNERAL\n\n");
+        printw("<ENTER>? ");
+        getnstr(input, sizeof(input));
     }
 }
 

@@ -14,7 +14,9 @@
 /* System includes. */
 #include <math.h>
 #include <ncurses.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Local includes. */
 #include "empire.h"
@@ -33,7 +35,7 @@ static void DrawInvestmentsScreen(Player *aPlayer);
 
 static void DisplayInvestments(Player *aPlayer);
 
-static void ComputeRevenues(Player *aPlayer);
+void ComputeRevenues(Player *aPlayer);
 
 
 /*
@@ -205,7 +207,7 @@ void ComputeRevenues(Player *aPlayer)
 
     /* Determine grain mill revenue. */
     grainMillRevenue = 
-          ((int) (5.8 * ((float) aPlayer->grainHarvest + RandRange(250))))
+          static_cast<int>(5.8 * static_cast<float>(aPlayer->grainHarvest + RandRange(250)))
         / (20*aPlayer->incomeTax + 40*aPlayer->salesTax + 150);
     grainMillRevenue = aPlayer->grainMillCount * grainMillRevenue;
     aPlayer->grainMillRevenue = pow(grainMillRevenue, 0.9);
@@ -234,7 +236,7 @@ void ComputeRevenues(Player *aPlayer)
 
     /* Determine sales tax revenue. */
     salesTaxRevenue =
-        (  ((int) (1.8 * ((float) aPlayer->merchantCount)))
+        (  static_cast<int>(1.8 * static_cast<float>(aPlayer->merchantCount))
          + 33*aPlayer->marketplaceRevenue
          + 17*aPlayer->grainMillRevenue
          + 50*aPlayer->foundryRevenue
@@ -247,7 +249,7 @@ void ComputeRevenues(Player *aPlayer)
 
     /* Determine income tax revenue. */
     incomeTaxRevenue =
-          ((int) (1.3 * ((float) aPlayer->serfCount)))
+          static_cast<int>(1.3 * static_cast<float>(aPlayer->serfCount))
         + 145*aPlayer->nobleCount
         + 39*aPlayer->merchantCount
         + 99*aPlayer->marketplaceCount
@@ -286,22 +288,22 @@ void SetTaxes(Player *aPlayer)
     bool done;
 
     /* Set taxes. */
-    done = FALSE;
+    done = false;
     while (!done)
     {
         /* Draw the investments screen. */
         DrawInvestmentsScreen(aPlayer);
 
         /* Get tax to set. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("1) CUSTOMS DUTY  2) SALES TAX  3) INCOME TAX? ");
+        CLEAR_MSG_AREA();
+        printw("1) CUSTOMS  2) SALES TAX  3) INCOME TAX  0) DONE? ");
         getnstr(input, sizeof(input));
 
         /* Parse input. */
-        switch (strtol(input, NULL, 0))
+        switch (strtol(input, nullptr, 0))
         {
             case 0 :
-                done = TRUE;
+                done = true;
                 break;
 
             case 1 :
@@ -336,15 +338,15 @@ void SetCustomsTax(Player *aPlayer)
     bool validCustomsTax;
 
     /* Get the new customs tax. */
-    validCustomsTax = FALSE;
+    validCustomsTax = false;
     do
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("GIVE NEW CUSTOMS TAX (MAX=50%)? ");
+        CLEAR_MSG_AREA();
+        printw("CUSTOMS TAX (NOW %d%%, MAX 50%%)? ", aPlayer->customsTax);
         getnstr(input, sizeof(input));
-        customsTax = strtol(input, NULL, 0);
+        customsTax = strtol(input, nullptr, 0);
         if ((customsTax >= 0) && (customsTax <= 50))
-            validCustomsTax = TRUE;
+            validCustomsTax = true;
     } while (!validCustomsTax);
     aPlayer->customsTax = customsTax;
 }
@@ -363,15 +365,15 @@ void SetSalesTax(Player *aPlayer)
     bool validSalesTax;
 
     /* Get the new sales tax. */
-    validSalesTax = FALSE;
+    validSalesTax = false;
     do
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("GIVE NEW SALES TAX (MAX=20%)? ");
+        CLEAR_MSG_AREA();
+        printw("SALES TAX (NOW %d%%, MAX 20%%)? ", aPlayer->salesTax);
         getnstr(input, sizeof(input));
-        salesTax = strtol(input, NULL, 0);
+        salesTax = strtol(input, nullptr, 0);
         if ((salesTax >= 0) && (salesTax <= 20))
-            validSalesTax = TRUE;
+            validSalesTax = true;
     } while (!validSalesTax);
     aPlayer->salesTax = salesTax;
 }
@@ -390,15 +392,15 @@ void SetIncomeTax(Player *aPlayer)
     bool validIncomeTax;
 
     /* Get the new income tax. */
-    validIncomeTax = FALSE;
+    validIncomeTax = false;
     do
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("GIVE NEW INCOME TAX (MAX=35%)? ");
+        CLEAR_MSG_AREA();
+        printw("INCOME TAX (NOW %d%%, MAX 35%%)? ", aPlayer->incomeTax);
         getnstr(input, sizeof(input));
-        incomeTax = strtol(input, NULL, 0);
+        incomeTax = strtol(input, nullptr, 0);
         if ((incomeTax >= 0) && (incomeTax <= 35))
-            validIncomeTax = TRUE;
+            validIncomeTax = true;
     } while (!validIncomeTax);
     aPlayer->incomeTax = incomeTax;
 }
@@ -448,22 +450,22 @@ void BuyInvestments(Player *aPlayer)
     bool done;
 
     /* Buy investments. */
-    done = FALSE;
+    done = false;
     while (!done)
     {
         /* Draw the investments screen. */
         DrawInvestmentsScreen(aPlayer);
 
         /* Get investment to buy. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("ANY NEW INVESTMENTS (GIVE #)? ");
+        CLEAR_MSG_AREA();
+        printw("BUY WHICH INVESTMENT (0 TO SKIP)? ");
         getnstr(input, sizeof(input));
 
         /* Parse input. */
-        switch (strtol(input, NULL, 0))
+        switch (strtol(input, nullptr, 0))
         {
             case 0 :
-                done = TRUE;
+                done = true;
                 break;
 
             case INVESTMENT_MARKETPLACE :
@@ -505,24 +507,20 @@ void BuyInvestments(Player *aPlayer)
 
 void BuyMarketplaces(Player *aPlayer)
 {
-    Country *country;
     char     input[80];
     int      newMerchantCount;
     int      marketplaceCount;
     bool     validMarketplaceCount;
 
-    /* Get the player country. */
-    country = aPlayer->country;
-
     /* Get the number of marketplaces to buy. */
-    validMarketplaceCount = FALSE;
+    validMarketplaceCount = false;
     do
     {
         /* Get user input. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
+        CLEAR_MSG_AREA();
         printw("HOW MANY? ");
         getnstr(input, sizeof(input));
-        marketplaceCount = strtol(input, NULL, 0);
+        marketplaceCount = strtol(input, nullptr, 0);
 
         /* Validate the number of marketplaces to buy. */
         validMarketplaceCount = ValidateInvestment(aPlayer,
@@ -552,23 +550,19 @@ void BuyMarketplaces(Player *aPlayer)
 
 void BuyGrainMills(Player *aPlayer)
 {
-    Country *country;
     char     input[80];
     int      grainMillCount;
     bool     validGrainMillCount;
 
-    /* Get the player country. */
-    country = aPlayer->country;
-
     /* Get the number of grain mills to buy. */
-    validGrainMillCount = FALSE;
+    validGrainMillCount = false;
     do
     {
         /* Get user input. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
+        CLEAR_MSG_AREA();
         printw("HOW MANY? ");
         getnstr(input, sizeof(input));
-        grainMillCount = strtol(input, NULL, 0);
+        grainMillCount = strtol(input, nullptr, 0);
 
         /* Validate the number of grain mills to buy. */
         validGrainMillCount = ValidateInvestment(aPlayer,
@@ -590,23 +584,19 @@ void BuyGrainMills(Player *aPlayer)
 
 void BuyFoundries(Player *aPlayer)
 {
-    Country *country;
     char     input[80];
     int      foundryCount;
     bool     validFoundryCount;
 
-    /* Get the player country. */
-    country = aPlayer->country;
-
     /* Get the number of foundries to buy. */
-    validFoundryCount = FALSE;
+    validFoundryCount = false;
     do
     {
         /* Get user input. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
+        CLEAR_MSG_AREA();
         printw("HOW MANY? ");
         getnstr(input, sizeof(input));
-        foundryCount = strtol(input, NULL, 0);
+        foundryCount = strtol(input, nullptr, 0);
 
         /* Validate the number of foundries to buy. */
         validFoundryCount = ValidateInvestment(aPlayer,
@@ -628,23 +618,19 @@ void BuyFoundries(Player *aPlayer)
 
 void BuyShipyards(Player *aPlayer)
 {
-    Country *country;
     char     input[80];
     int      shipyardCount;
     bool     validShipyardCount;
 
-    /* Get the player country. */
-    country = aPlayer->country;
-
     /* Get the number of shipyards to buy. */
-    validShipyardCount = FALSE;
+    validShipyardCount = false;
     do
     {
         /* Get user input. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
+        CLEAR_MSG_AREA();
         printw("HOW MANY? ");
         getnstr(input, sizeof(input));
-        shipyardCount = strtol(input, NULL, 0);
+        shipyardCount = strtol(input, nullptr, 0);
 
         /* Validate the number of shipyards to buy. */
         validShipyardCount = ValidateInvestment(aPlayer,
@@ -666,29 +652,59 @@ void BuyShipyards(Player *aPlayer)
 
 void BuySoldiers(Player *aPlayer)
 {
-    Country *country;
     char     input[80];
     int      soldierCount;
-    bool     validSoldierCount;
-
-    /* Get the player country. */
-    country = aPlayer->country;
 
     /* Get the number of soldiers to buy. */
-    validSoldierCount = FALSE;
-    do
-    {
-        /* Get user input. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("HOW MANY? ");
-        getnstr(input, sizeof(input));
-        soldierCount = strtol(input, NULL, 0);
+    CLEAR_MSG_AREA();
+    printw("HOW MANY? ");
+    getnstr(input, sizeof(input));
+    soldierCount = strtol(input, nullptr, 0);
+    if (soldierCount <= 0)
+        return;
 
-        /* Validate the number of soldiers to buy. */
-        validSoldierCount = ValidateInvestment(aPlayer,
-                                               INVESTMENT_SOLDIER,
-                                               soldierCount);
-    } while (!validSoldierCount);
+    /*
+     * Cap the soldier count to the maximum the player can afford, train,
+     * equip, and lead.
+     */
+    {
+        int totalPeople =   aPlayer->serfCount
+                          + aPlayer->merchantCount
+                          + aPlayer->nobleCount;
+        float equipRatio = 0.05 + 0.015 * aPlayer->foundryCount;
+        int maxEquip = MAX(0, static_cast<int>(equipRatio * totalPeople)
+                              - aPlayer->soldierCount);
+        int maxNobles = MAX(0, (20 * aPlayer->nobleCount)
+                               - aPlayer->soldierCount);
+        int maxSoldiers = MIN(MIN(aPlayer->treasury / 8, aPlayer->serfCount),
+                              MIN(maxEquip, maxNobles));
+
+        if (soldierCount > maxSoldiers)
+        {
+            soldierCount = maxSoldiers;
+            CLEAR_MSG_AREA();
+            if (maxSoldiers == maxNobles)
+                ShowMessage("LIMITED BY NOBLES (%d LEAD UP TO %d TROOPS).\n"
+                            "YOU CAN RECRUIT %d SOLDIERS.",
+                            aPlayer->nobleCount, 20 * aPlayer->nobleCount,
+                            soldierCount);
+            else if (maxSoldiers == maxEquip)
+                ShowMessage("LIMITED BY FOUNDRIES (%d). BUILD MORE TO EQUIP TROOPS.\n"
+                            "YOU CAN RECRUIT %d SOLDIERS.",
+                            aPlayer->foundryCount, soldierCount);
+            else if (maxSoldiers == aPlayer->serfCount)
+                ShowMessage("LIMITED BY SERFS (%d AVAILABLE TO TRAIN).\n"
+                            "YOU CAN RECRUIT %d SOLDIERS.",
+                            aPlayer->serfCount, soldierCount);
+            else
+                ShowMessage("LIMITED BY TREASURY (%d %s).\n"
+                            "YOU CAN RECRUIT %d SOLDIERS.",
+                            aPlayer->treasury, aPlayer->country->currency,
+                            soldierCount);
+        }
+    }
+    if (soldierCount <= 0)
+        return;
 
     /* Update soldier count and treasury. */
     aPlayer->soldierCount += soldierCount;
@@ -705,24 +721,20 @@ void BuySoldiers(Player *aPlayer)
 
 void BuyPalaces(Player *aPlayer)
 {
-    Country *country;
     char     input[80];
     int      newNobleCount;
     int      palaceCount;
     bool     validPalaceCount;
 
-    /* Get the player country. */
-    country = aPlayer->country;
-
     /* Get the number of palaces to buy. */
-    validPalaceCount = FALSE;
+    validPalaceCount = false;
     do
     {
         /* Get user input. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
+        CLEAR_MSG_AREA();
         printw("HOW MANY? ");
         getnstr(input, sizeof(input));
-        palaceCount = strtol(input, NULL, 0);
+        palaceCount = strtol(input, nullptr, 0);
 
         /* Validate the number of palaces to buy. */
         validPalaceCount = ValidateInvestment(aPlayer,
@@ -761,7 +773,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
     Country *country;
     int      totalCost;
     char     invalidMessage[128];
-    bool     valid = TRUE;
+    bool     valid = true;
 
     /* Clear the invalid message. */
     invalidMessage[0] = '\0';
@@ -771,7 +783,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
 
     /* Validate that the count is a non-negative number. */
     if (investmentCount < 0)
-        valid = FALSE;
+        valid = false;
 
     /* Validate there's enough in the treasury for the purchase. */
     if (valid)
@@ -779,10 +791,10 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
         totalCost = investmentCount * investmentCost[investment - 1];
         if (totalCost > aPlayer->treasury)
         {
-            valid = FALSE;
+            valid = false;
             snprintf(invalidMessage,
                      sizeof(invalidMessage),
-                     "THINK AGAIN . . .YOU ONLY HAVE %d %s",
+                     "YOU ONLY HAVE %d %s!",
                      aPlayer->treasury,
                      country->currency);
         }
@@ -791,7 +803,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
     /* Validate that there are enough serfs to train for the purchase. */
     if (valid && (investmentCount > aPlayer->serfCount))
     {
-        valid = FALSE;
+        valid = false;
         snprintf(invalidMessage,
                  sizeof(invalidMessage),
                  "YOU DON'T HAVE ENOUGH SERFS TO TRAIN");
@@ -819,10 +831,10 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
          * Validate if there are enough foundries and nobles for the new
          * soldiers.
          */
-        if ((((float) totalSoldierCount) / ((float) totalPeopleCount)) >
+        if ((static_cast<float>(totalSoldierCount) / static_cast<float>(totalPeopleCount)) >
             (0.05 + 0.015*aPlayer->foundryCount))
         {
-            valid = FALSE;
+            valid = false;
             snprintf(invalidMessage,
                      sizeof(invalidMessage),
                      "YOU CANNOT EQUIP AND MAINTAIN SO MANY TROOPS, %s",
@@ -830,11 +842,10 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
         }
         else if (totalSoldierCount > (20 * aPlayer->nobleCount))
         {
-            valid = FALSE;
+            valid = false;
             snprintf(invalidMessage,
                      sizeof(invalidMessage),
-                     "PLEASE THINK AGAIN . . .  YOU ONLY HAVE %d NOBLES\n"
-                     "TO LEAD YOUR TROOPS.",
+                     "YOU ONLY HAVE %d NOBLES TO LEAD YOUR TROOPS!",
                      aPlayer->nobleCount);
         }
     }
@@ -842,10 +853,8 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
     /* If investment is invalid, notify the player. */
     if (!valid && (strlen(invalidMessage) > 0))
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw(invalidMessage);
-        refresh();
-        sleep(DELAY_TIME);
+        CLEAR_MSG_AREA();
+        ShowMessage("%s", invalidMessage);
     }
 
     return valid;

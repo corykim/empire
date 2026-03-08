@@ -12,11 +12,15 @@
  */
 
 /* System includes. */
+#include <math.h>
 #include <ncurses.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Local includes. */
 #include "empire.h"
+#include "cpu_strategy.h"
 
 
 /*------------------------------------------------------------------------------
@@ -39,6 +43,17 @@ static void DisplayBattleResults(Battle *aBattle);
 static void Sack(Player *aTargetPlayer);
 
 static void DrawAttackScreen(Player *aPlayer);
+
+static void CPUAttack(Player *aPlayer, Player *aTargetPlayer);
+
+static void DisplayCPUBattleResults(Battle *aBattle);
+
+static void InitBattle(Battle *aBattle, Player *aPlayer);
+
+static void SetBattleTarget(Battle *aBattle, Player *aTargetPlayer);
+
+static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
+                               Player *aTargetPlayer);
 
 
 /*------------------------------------------------------------------------------
@@ -70,10 +85,10 @@ void AttackScreen(Player *aPlayer)
         DrawAttackScreen(aPlayer);
 
         /* Get country to attack. */
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("WHO DO YOU WISH TO ATTACK (GIVE #)? ");
+        CLEAR_MSG_AREA();
+        printw("ATTACK WHICH COUNTRY (0 TO SKIP)? ");
         getnstr(input, sizeof(input));
-        country = strtol(input, NULL, 0);
+        country = strtol(input, nullptr, 0);
 
         /* Parse input. */
         if (country == 0)
@@ -82,20 +97,16 @@ void AttackScreen(Player *aPlayer)
         }
         else if (country == 1)
         {
-            targetPlayer = NULL;
+            targetPlayer = nullptr;
         }
         else if ((country >= 2) && (country <= (COUNTRY_COUNT + 1)))
         {
             targetPlayer = &(playerList[country - 2]);
             if (targetPlayer == aPlayer)
             {
-                mvprintw(15,
-                         0,
-                         "%s, PLEASE THINK AGAIN.  YOU ARE # %d!",
-                         aPlayer->title,
-                         country);
-                refresh();
-                sleep(DELAY_TIME);
+                move(15, 0);
+                ShowMessage("%s, THAT IS YOUR OWN COUNTRY (#%d)!",
+                            aPlayer->title, country);
                 continue;
             }
         }
@@ -107,12 +118,173 @@ void AttackScreen(Player *aPlayer)
         }
         else
         {
-            move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-            printw("DUE TO A SHORTAGE OF NOBLES , YOU ARE LIMITED TO ONLY\n");
-            printw(" %d ATTACKS PER YEAR", maxAttacks);
-            refresh();
-            sleep(DELAY_TIME);
+            CLEAR_MSG_AREA();
+            ShowMessage("DUE TO A SHORTAGE OF NOBLES , YOU ARE LIMITED TO ONLY\n"
+                        " %d ATTACKS PER YEAR", maxAttacks);
         }
+    }
+}
+
+
+/*
+ * Manage attacking for the CPU player specified by aPlayer.
+ * Delegates target selection to the current difficulty strategy.
+ *
+ *   aPlayer                CPU player.
+ */
+
+void CPUAttackScreen(Player *aPlayer)
+{
+    CPUStrategy *strategy = cpuStrategies[difficulty];
+    Player *targetPlayer;
+    int     attackChance;
+    int     targetIndex;
+    int     i;
+    int     livingCount;
+    int     livingIndices[COUNTRY_COUNT];
+
+    /* Don't attack before the third year. */
+    if (year < 3)
+        return;
+
+    /* Don't attack if no soldiers. */
+    if (aPlayer->soldierCount <= 0)
+        return;
+
+    /* Decide whether to attack this year using the strategy's aggression. */
+    attackChance = strategy->attackChanceBase
+                   + (strategy->attackChancePerYear * year);
+    if (attackChance > 95)
+        attackChance = 95;
+    if (RandRange(100) >= attackChance)
+        return;
+
+    /* Build a list of living players that are not this CPU player. */
+    livingCount = 0;
+    for (i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead && (&playerList[i] != aPlayer))
+            livingIndices[livingCount++] = i;
+    }
+
+    if (livingCount == 0 && barbarianLand == 0)
+        return;
+
+    /* Delegate target selection to the strategy. */
+    targetIndex = strategy->selectTarget(aPlayer, livingIndices, livingCount);
+    if (targetIndex == -1)
+        return;
+    targetPlayer = (targetIndex == -2) ? nullptr : &(playerList[targetIndex]);
+
+    /* Attack. */
+    aPlayer->attackCount = 0;
+    CPUAttack(aPlayer, targetPlayer);
+}
+
+
+/*------------------------------------------------------------------------------
+ *
+ * Attack helper functions.
+ */
+
+/*
+ * Initialize a battle for the attacking player specified by aPlayer.
+ *
+ *   aBattle                Battle to initialize.
+ *   aPlayer                Attacking player.
+ */
+
+static void InitBattle(Battle *aBattle, Player *aPlayer)
+{
+    *aBattle = {};
+    aBattle->player = aPlayer;
+    aBattle->soldierEfficiency = aPlayer->armyEfficiency;
+    snprintf(aBattle->soldierLabel,
+             sizeof(aBattle->soldierLabel),
+             "%s %s OF %s",
+             aPlayer->title,
+             aPlayer->name,
+             aPlayer->country->name);
+}
+
+
+/*
+ * Set the target for the battle specified by aBattle.  If aTargetPlayer is
+ * NULL, the target is barbarians.
+ *
+ *   aBattle                Battle.
+ *   aTargetPlayer          Target player, or NULL for barbarians.
+ */
+
+static void SetBattleTarget(Battle *aBattle, Player *aTargetPlayer)
+{
+    if (aTargetPlayer != nullptr)
+    {
+        aBattle->targetPlayer = aTargetPlayer;
+        aBattle->targetLand = aTargetPlayer->land;
+        snprintf(aBattle->targetSoldierLabel,
+                 sizeof(aBattle->targetSoldierLabel),
+                 "%s %s OF %s",
+                 aTargetPlayer->title,
+                 aTargetPlayer->name,
+                 aTargetPlayer->country->name);
+        if (aTargetPlayer->soldierCount > 0)
+        {
+            aBattle->targetSoldierCount = aTargetPlayer->soldierCount;
+            aBattle->targetSoldierEfficiency = aTargetPlayer->armyEfficiency;
+        }
+        else
+        {
+            aBattle->targetSerfs = true;
+            aBattle->targetSoldierCount = aTargetPlayer->serfCount;
+            aBattle->targetSoldierEfficiency = SERF_EFFICIENCY;
+        }
+    }
+    else
+    {
+        aBattle->targetLand = barbarianLand;
+        snprintf(aBattle->targetSoldierLabel,
+                 sizeof(aBattle->targetSoldierLabel),
+                 "PAGAN BARBARIANS");
+        aBattle->targetSoldierCount =
+              RandRange(3 * RandRange(aBattle->soldierCount))
+            + RandRange(RandRange(3 * aBattle->soldierCount / 2));
+        aBattle->targetSoldierEfficiency = 9;
+    }
+}
+
+
+/*
+ * Apply the results of the battle specified by aBattle to the attacker and
+ * target player holdings.
+ *
+ *   aBattle                Battle.
+ *   aPlayer                Attacking player.
+ *   aTargetPlayer          Target player, or NULL for barbarians.
+ */
+
+static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
+                               Player *aTargetPlayer)
+{
+    aPlayer->attackCount++;
+    aPlayer->soldierCount -= aBattle->soldiersToAttackCount
+                             - aBattle->soldierCount;
+    if (aTargetPlayer != nullptr)
+    {
+        if (aBattle->targetSerfs)
+            aTargetPlayer->serfCount = aBattle->targetSoldierCount;
+        else
+            aTargetPlayer->soldierCount = aBattle->targetSoldierCount;
+    }
+    aPlayer->land += aBattle->landCaptured;
+    if (aTargetPlayer != nullptr)
+        aTargetPlayer->land -= aBattle->landCaptured;
+    else
+        barbarianLand -= aBattle->landCaptured;
+    if ((aTargetPlayer != nullptr) && aBattle->targetOverrun)
+    {
+        aPlayer->serfCount += aTargetPlayer->serfCount;
+        aTargetPlayer->dead = true;
     }
 }
 
@@ -135,100 +307,153 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
     Battle battle;
 
     /* Can't attack other players until the third year. */
-    if ((aTargetPlayer != NULL) && (year < 3))
+    if ((aTargetPlayer != nullptr) && (year < 3))
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("DUE TO INTERNATIONAL TREATY, YOU CANNOT ATTACK OTHER\n"
-               "NATIONS UNTIL THE THIRD YEAR.");
-        refresh();
-        sleep(DELAY_TIME);
+        CLEAR_MSG_AREA();
+        ShowMessage("DUE TO INTERNATIONAL TREATY, YOU CANNOT ATTACK OTHER\n"
+                    "NATIONS UNTIL THE THIRD YEAR.");
         return;
     }
 
     /* If attacking the barbarians, make sure they have land. */
-    if ((aTargetPlayer == NULL) && (barbarianLand == 0))
+    if ((aTargetPlayer == nullptr) && (barbarianLand == 0))
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("ALL BARBARIAN LANDS HAVE BEEN SEIZED\n");
-        refresh();
-        sleep(DELAY_TIME);
+        CLEAR_MSG_AREA();
+        ShowMessage("ALL BARBARIAN LANDS HAVE BEEN SEIZED\n");
         return;
     }
 
-    /* Initialize the battle information. */
-    memset(&battle, 0, sizeof(battle));
-
-    /* Set the player battle information. */
-    battle.player = aPlayer;
-    battle.soldierEfficiency = aPlayer->armyEfficiency;
-    snprintf(battle.soldierLabel,
-             sizeof(battle.soldierLabel),
-             "%s %s OF %s",
-             aPlayer->title,
-             aPlayer->name,
-             aPlayer->country->name);
+    /* Set up the battle. */
+    InitBattle(&battle, aPlayer);
     GetSoldiersToAttack(&battle);
-
-    /* Set the target battle information. */
-    if (aTargetPlayer != NULL)
-    {
-        battle.targetPlayer = aTargetPlayer;
-        battle.targetLand = aTargetPlayer->land;
-        snprintf(battle.targetSoldierLabel,
-                 sizeof(battle.targetSoldierLabel),
-                 "%s %s OF %s",
-                 aTargetPlayer->title,
-                 aTargetPlayer->name,
-                 aTargetPlayer->country->name);
-        if (aTargetPlayer->soldierCount > 0)
-        {
-            battle.targetSoldierCount = aTargetPlayer->soldierCount;
-            battle.targetSoldierEfficiency = aTargetPlayer->armyEfficiency;
-        }
-        else
-        {
-            battle.targetSerfs = TRUE;
-            battle.targetSoldierCount = aTargetPlayer->serfCount;
-            battle.targetSoldierEfficiency = SERF_EFFICIENCY;
-        }
-    }
-    else
-    {
-        battle.targetLand = barbarianLand;
-        snprintf(battle.targetSoldierLabel,
-                 sizeof(battle.targetSoldierLabel),
-                 "PAGAN BARBARIANS");
-        battle.targetSoldierCount =
-              RandRange(3 * RandRange(battle.soldierCount))
-            + RandRange(RandRange(3 * battle.soldierCount / 2));
-        battle.targetSoldierEfficiency = 9;
-    }
+    SetBattleTarget(&battle, aTargetPlayer);
 
     /* Battle. */
     RunBattle(&battle);
     DisplayBattleResults(&battle);
+    ApplyBattleResults(&battle, aPlayer, aTargetPlayer);
+}
 
-    /* Update soldiers, land, etc. */
-    aPlayer->attackCount++;
-    aPlayer->soldierCount -=   battle.soldiersToAttackCount
-                             - battle.soldierCount;
-    if (aTargetPlayer != NULL)
+
+/*
+ *   Attack the player specified by aTargetPlayer for the CPU player specified
+ * by aPlayer.  If aTargetPlayer is NULL, attack barbarians.
+ *
+ *   aPlayer                CPU player.
+ *   aTargetPlayer          Player to attack.
+ */
+
+static void CPUAttack(Player *aPlayer, Player *aTargetPlayer)
+{
+    Battle battle;
+    int    soldiersToSend;
+
+    /* If attacking the barbarians, make sure they have land. */
+    if ((aTargetPlayer == nullptr) && (barbarianLand == 0))
+        return;
+
+    /* Set up the battle. */
+    InitBattle(&battle, aPlayer);
+
+    /* Delegate troop commitment to the strategy. */
+    soldiersToSend = cpuStrategies[difficulty]->chooseSoldiersToSend(
+                         aPlayer, aTargetPlayer);
+    if (soldiersToSend > aPlayer->soldierCount)
+        soldiersToSend = aPlayer->soldierCount;
+    if (soldiersToSend <= 0)
+        return;
+    battle.soldiersToAttackCount = soldiersToSend;
+    battle.soldierCount = soldiersToSend;
+
+    /* Set up the target and fight. */
+    SetBattleTarget(&battle, aTargetPlayer);
+    RunBattle(&battle);
+    DisplayCPUBattleResults(&battle);
+    ApplyBattleResults(&battle, aPlayer, aTargetPlayer);
+}
+
+
+/*
+ * Display results of the CPU battle specified by aBattle.
+ *
+ *   aBattle                Battle for which to display results.
+ */
+
+static void DisplayCPUBattleResults(Battle *aBattle)
+{
+    Player *player;
+    Player *targetPlayer;
+    int     landCaptured;
+
+    /* Get battle information. */
+    player = aBattle->player;
+    targetPlayer = aBattle->targetPlayer;
+    landCaptured = aBattle->landCaptured;
+
+    /* Display battle results. */
+    clear();
+    mvprintw(1, 23, "BATTLE OVER\n\n");
+    if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
-        if (battle.targetSerfs)
-            aTargetPlayer->serfCount = battle.targetSoldierCount;
+        printw("THE COUNTRY OF %s WAS OVERUN BY %s %s!\n",
+               targetPlayer->country->name,
+               player->title,
+               player->name);
+    }
+    else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
+    {
+        printw("%s %s SEIZED ALL BARBARIAN LANDS!\n",
+               player->title,
+               player->name);
+    }
+    else if (aBattle->targetDefeated)
+    {
+        printw("THE FORCES OF %s %s WERE VICTORIOUS.\n",
+               player->title,
+               player->name);
+        printw(" %d ACRES WERE SEIZED", landCaptured);
+        if (targetPlayer != nullptr)
+            printw(" FROM %s.\n", targetPlayer->country->name);
         else
-            aTargetPlayer->soldierCount = battle.targetSoldierCount;
+            printw(" FROM THE BARBARIANS.\n");
     }
-    aPlayer->land += battle.landCaptured;
-    if (aTargetPlayer != NULL)
-        aTargetPlayer->land -= battle.landCaptured;
     else
-        barbarianLand -= battle.landCaptured;
-    if ((aTargetPlayer != NULL) && battle.targetOverrun)
     {
-        aPlayer->serfCount += aTargetPlayer->serfCount;
-        aTargetPlayer->dead = TRUE;
+        printw("%s %s WAS DEFEATED", player->title, player->name);
+        if (targetPlayer != nullptr)
+            printw(" BY %s.\n", targetPlayer->country->name);
+        else
+            printw(" BY THE BARBARIANS.\n");
+        if (landCaptured > 2)
+            landCaptured /= RandRange(3);
+        else
+            landCaptured = 0;
     }
+
+    /* Check for sacking. */
+    if (   (targetPlayer != nullptr)
+        && !aBattle->targetOverrun
+        && (landCaptured > (aBattle->targetLand / 3)))
+    {
+        Sack(targetPlayer);
+    }
+
+    /* If a human player was involved, wait for acknowledgement. */
+    if ((targetPlayer != nullptr && targetPlayer->human) ||
+        (player != nullptr && player->human))
+    {
+        printw("\n<ENTER>? ");
+        char input[80];
+        getnstr(input, sizeof(input));
+    }
+    else
+    {
+        refresh();
+        usleep(2 * DELAY_TIME);
+    }
+
+    /* Update battle information. */
+    aBattle->landCaptured = landCaptured;
 }
 
 
@@ -250,24 +475,23 @@ static void GetSoldiersToAttack(Battle *aBattle)
     player = aBattle->player;
 
     /* Get the number of soldiers with which to attack. */
-    soldiersToAttackCountValid = FALSE;
+    soldiersToAttackCountValid = false;
     while (!soldiersToAttackCountValid)
     {
-        move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-        printw("HOW MANY SOLDIERS DO YOU WISH TO SEND? ");
+        CLEAR_MSG_AREA();
+        printw("HOW MANY OF YOUR %d SOLDIERS TO SEND? ",
+               player->soldierCount);
         getnstr(input, sizeof(input));
-        soldiersToAttackCount = strtol(input, NULL, 0);
+        soldiersToAttackCount = strtol(input, nullptr, 0);
         if (soldiersToAttackCount > player->soldierCount)
         {
-            move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0);
-            printw("THINK AGAIN... YOU HAVE ONLY %d SOLDIERS",
-                   player->soldierCount);
-            refresh();
-            sleep(DELAY_TIME);
+            CLEAR_MSG_AREA();
+            ShowMessage("YOU ONLY HAVE %d SOLDIERS!",
+                        player->soldierCount);
         }
         else
         {
-            soldiersToAttackCountValid = TRUE;
+            soldiersToAttackCountValid = true;
         }
     }
 
@@ -294,8 +518,9 @@ static void RunBattle(Battle *aBattle)
     int     targetLand;
     int     soldierKillCount;
     int     landCaptured = 0;
-    bool    targetSerfs = FALSE;
-    bool    targetOverrun = FALSE;
+    int     roundDelayUs;
+    bool    targetSerfs = false;
+    bool    targetOverrun = false;
     bool    battleDone;
 
     /* Get battle information. */
@@ -310,7 +535,7 @@ static void RunBattle(Battle *aBattle)
 
     /* Battle. */
     landCaptured = 0;
-    battleDone = FALSE;
+    battleDone = false;
     while (!battleDone)
     {
         /* Show soldiers remaining. */
@@ -326,13 +551,32 @@ static void RunBattle(Battle *aBattle)
                      targetPlayer->country->name);
         }
         refresh();
-        usleep(250000);
+
+        /*
+         * Per-round delay scales with the square root of the smaller force,
+         * recalculated each round so the pace slows as forces dwindle.
+         *
+         *   delay = 37.5ms * sqrt(smaller)
+         */
+        {
+            int smaller = soldierCount < targetSoldierCount
+                          ? soldierCount : targetSoldierCount;
+            if (smaller < 1) smaller = 1;
+            roundDelayUs = static_cast<int>(37500.0 * sqrt(static_cast<double>(smaller)));
+        }
+        usleep(roundDelayUs);
 
         /*
          * Determine how many soldiers were killed in this round, who won the
-         * round, and how much land was captured.
+         * round, and how much land was captured.  Kill count is based on
+         * the attacker's force so battles against large serf armies don't
+         * end in a single round.
          */
         soldierKillCount = (soldierCount / 15) + 1;
+        if (soldierCount > 200)
+            soldierKillCount = (soldierCount / 8) + 1;
+        if (soldierCount > 1000)
+            soldierKillCount = (soldierCount / 5) + 1;
         if (RandRange(soldierEfficiency) < RandRange(targetSoldierEfficiency))
         {
             /* Player lost. */
@@ -342,7 +586,7 @@ static void RunBattle(Battle *aBattle)
 
             /* Battle is done if all target land has been captured. */
             if (landCaptured >= targetLand)
-                battleDone = TRUE;
+                battleDone = true;
         }
         else
         {
@@ -360,7 +604,7 @@ static void RunBattle(Battle *aBattle)
 
         /* Keep battling until one army is defeated. */
         if ((soldierCount == 0) || (targetSoldierCount == 0))
-            battleDone = TRUE;
+            battleDone = true;
     }
 
     /* Update battle information. */
@@ -369,9 +613,9 @@ static void RunBattle(Battle *aBattle)
     aBattle->landCaptured = landCaptured;
     if (soldierCount > 0)
     {
-        aBattle->targetDefeated = TRUE;
+        aBattle->targetDefeated = true;
         if (targetSerfs || (landCaptured >= targetLand))
-            aBattle->targetOverrun = TRUE;
+            aBattle->targetOverrun = true;
     }
 }
 
@@ -403,7 +647,7 @@ static void DisplayBattleResults(Battle *aBattle)
     /* Display battle results. */
     clear();
     mvprintw(1, 23, "BATTLE OVER\n\n");
-    if ((targetPlayer != NULL) && aBattle->targetOverrun)
+    if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
         /* Target player overrun. */
         printw("THE COUNTRY OF %s WAS OVERUN!\n", targetPlayer->country->name);
@@ -420,7 +664,7 @@ static void DisplayBattleResults(Battle *aBattle)
                "DRUNKEN RIOT FOLLOWING THE VICTORY\n");
         printw("CELEBRATION.\n");
     }
-    else if ((targetPlayer == NULL) && aBattle->targetOverrun)
+    else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
     {
         printw("ALL BARBARIAN LANDS HAVE BEEN SEIZED\n");
         printw("THE REMAINING BARBARIANS FLED\n");
@@ -452,7 +696,7 @@ static void DisplayBattleResults(Battle *aBattle)
     }
 
     /* Check for sacking. */
-    if (   (targetPlayer != NULL)
+    if (   (targetPlayer != nullptr)
         && !aBattle->targetOverrun
         && (landCaptured > (targetLand / 3)))
     {

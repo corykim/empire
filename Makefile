@@ -17,6 +17,6 @@ all: empire
 # Build rules.
 #
 
-empire: attack.c empire.c grain.c investments.c population.c
-	gcc -g -lncurses -o empire $^
+empire: attack.cpp cpu.cpp empire.cpp grain.cpp investments.cpp population.cpp
+	g++ -g -std=c++17 -lncurses -lm -o empire $^
 

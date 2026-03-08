@@ -19,14 +19,16 @@
  *
  *   COUNTRY_COUNT          Count of the number of countries.
  *   TITLE_COUNT            Count of the number of ruler titles.
- *   DELAY_TIME             Time in seconds to delay.
+ *   DIFFICULTY_COUNT       Count of the number of difficulty levels.
+ *   DELAY_TIME             Time in microseconds to delay.
  *   SERF_EFFICIENCY        Serf fighting efficiency (10 = 100%).
  */
 
-#define COUNTRY_COUNT       6
-#define TITLE_COUNT         4
-#define DELAY_TIME          3
-#define SERF_EFFICIENCY     5
+constexpr int COUNTRY_COUNT       = 6;
+constexpr int TITLE_COUNT         = 4;
+constexpr int DIFFICULTY_COUNT    = 5;
+constexpr int DELAY_TIME          = 2000000;
+constexpr int SERF_EFFICIENCY     = 5;
 
 
 /*------------------------------------------------------------------------------
@@ -43,13 +45,13 @@
  *   titleList              List of ruler titles.
  */
 
-typedef struct
+struct Country
 {
     char                    name[80];
     char                    rulerName[80];
     char                    currency[80];
     char                    titleList[TITLE_COUNT][80];
-} Country;
+};
 
 
 /*
@@ -99,7 +101,7 @@ typedef struct
  *   attackCount            Count of the number of attacks this year.
  */
 
-typedef struct
+struct Player
 {
     char                    name[80];
     int                     number;
@@ -143,7 +145,7 @@ typedef struct
     int                     armyGrainFeed;
     int                     diedStarvation;
     int                     attackCount;
-} Player;
+};
 
 
 /*
@@ -165,7 +167,7 @@ typedef struct
  *   targetOverrun          If true, target has been overrun.
  */
 
-typedef struct
+struct Battle
 {
     Player                 *player;
     int                     soldiersToAttackCount;
@@ -181,7 +183,17 @@ typedef struct
     int                     landCaptured;
     bool                    targetDefeated;
     bool                    targetOverrun;
-} Battle;
+};
+
+
+/*
+ * Forward declaration of the CPU strategy base class.  See cpu_strategy.h
+ * for the full class hierarchy.
+ */
+
+class CPUStrategy;
+
+extern CPUStrategy *cpuStrategies[DIFFICULTY_COUNT];
 
 
 /*------------------------------------------------------------------------------
@@ -213,6 +225,7 @@ extern int year;
 extern int weather;
 extern int barbarianLand;
 extern int done;
+extern int difficulty;
 
 
 /*------------------------------------------------------------------------------
@@ -225,6 +238,10 @@ int RandRange(int range);
 void InvestmentsScreen(Player *aPlayer);
 
 void AttackScreen(Player *aPlayer);
+
+void CPUAttackScreen(Player *aPlayer);
+
+void ComputeRevenues(Player *aPlayer);
 
 
 /*------------------------------------------------------------------------------
@@ -242,12 +259,38 @@ void AttackScreen(Player *aPlayer);
 
 
 /*
+ * Return the minimum of the two values specified by a and b.
+ *
+ *   a, b                   Values for which to return the minimum.
+ */
+
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+
+
+/*
  * Return the length of the array specified by aArray.
  *
  *   aArray                 Array to get length.
  */
 
 #define ArraySize(aArray) (sizeof((aArray)) / sizeof((aArray)[0]))
+
+
+/*
+ * Clear the two-line message area at the bottom of the screen (rows 14-15)
+ * and position the cursor at the start of row 14.
+ */
+
+/*
+ * Display a message, refresh the screen, and delay proportional to the
+ * number of words.  200ms per word, never less than DELAY_TIME.  Accepts
+ * printf-style format strings.
+ */
+
+void ShowMessage(const char *fmt, ...);
+
+
+#define CLEAR_MSG_AREA() do { move(14, 0); clrtoeol(); move(15, 0); clrtoeol(); move(14, 0); } while (0)
 
 
 #endif /* __EMPIRE_H__ */
