@@ -51,6 +51,153 @@ CPUStrategy *cpuStrategies[DIFFICULTY_COUNT] =
  * maxVal), clamped to [0, maxVal].
  */
 
+/*
+ * Unified attack decision and target selection.
+ *
+ * Each candidate's weight combines three factors:
+ *   1. Diplomacy: max(0.01, 1 - diplomacy), amplified by weakness for enemies
+ *   2. Envy: max(0, targetPower/attackerPower - 1) * ENVY_SCALE
+ *   3. Theory of mind: SimulateAttackOutcome predicts diplomatic fallout
+ *      and retaliation risk, adjusting weight up or down
+ *
+ * Weights are blended toward uniform by errorPct for difficulty scaling.
+ * The strongest weight scales base aggression to determine attack probability.
+ * If the roll says attack, a weighted random pick selects the target.
+ * Returns a playerList index, TARGET_BARBARIANS, or TARGET_NONE.
+ */
+
+int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
+                                       int livingCount, float requireOdds)
+{
+    float weights[COUNTRY_COUNT];
+    float totalWeight = 0.0f;
+    float maxWeight = 0.0f;
+    int   eligibleCount = 0;
+    float attackerPower = ComputePlayerPower(aPlayer);
+    float err = errorPct / 100.0f;
+
+    for (int i = 0; i < livingCount; i++)
+    {
+        int idx = livingIndices[i];
+        Player *candidate = &playerList[idx];
+
+        /* Skip if we don't meet the required soldier odds. */
+        if (requireOdds > 0.0f &&
+            aPlayer->soldierCount <
+            static_cast<int>(candidate->soldierCount * requireOdds))
+        {
+            weights[i] = 0.0f;
+            continue;
+        }
+
+        float w = DiplomacyAttackWeight(aPlayer->diplomacy[idx],
+                                      candidate->soldierCount);
+
+        /* Envy: powerful targets are attractive regardless of diplomacy.
+         * Quadratic growth ensures envy overwhelms retaliation fear
+         * at high power disparity — a 5x stronger target is irresistible. */
+        float targetPower = ComputePlayerPower(candidate);
+        float envy = (targetPower / attackerPower) - 1.0f;
+        if (envy < 0.0f) envy = 0.0f;
+        w += envy * envy * DIPLOMACY_ENVY_SCALE;
+
+        /* Theory of mind: simulate diplomatic consequences of this attack. */
+        float simScore = SimulateAttackOutcome(aPlayer, idx);
+        w += simScore;
+        if (w < 0.01f) w = 0.01f;
+
+        /* Blend toward uniform (1.0) based on error rate.  Village Fool
+         * (errorPct=50) picks nearly at random; Machiavelli (errorPct=5)
+         * follows diplomacy weights closely. */
+        w = w * (1.0f - err) + 1.0f * err;
+
+        weights[i] = w;
+        totalWeight += w;
+        if (w > maxWeight) maxWeight = w;
+        eligibleCount++;
+    }
+
+    /* Add barbarians as a weighted candidate based on troop strength.
+     * Stronger armies are more likely to expand into barbarian lands. */
+    float barbarianWeight = 0.0f;
+    if (barbarianLand > 0)
+    {
+        float strength = 1.0f - MilitaryWeakness(aPlayer->soldierCount);
+        barbarianWeight = strength;
+        totalWeight += barbarianWeight;
+        if (barbarianWeight > maxWeight) maxWeight = barbarianWeight;
+    }
+
+    /* Base aggression, used for the attack roll. */
+    int aggression = attackChanceBase + (attackChancePerYear * year);
+
+    if (totalWeight <= 0.0f)
+        return TARGET_NONE;
+
+    /* Attack probability = base aggression scaled by strongest weight.
+     * maxWeight=1 (neutral) → normal aggression.
+     * maxWeight=2 (enemy at -1) → double aggression.
+     * maxWeight≈0 (all friends, weak army) → near-zero aggression. */
+    int effectiveChance = static_cast<int>(aggression * maxWeight);
+    if (effectiveChance > 95) effectiveChance = 95;
+
+    GameLog("  Attack chance: base %d%%, maxWeight %.2f, effective %d%%\n",
+            aggression, maxWeight, effectiveChance);
+
+    if (RandRange(100) >= effectiveChance)
+        return TARGET_NONE;
+
+    /* Weighted random selection among all candidates including barbarians. */
+    float roll = static_cast<float>(RandRange(10000)) / 10000.0f * totalWeight;
+    float cumulative = 0.0f;
+    for (int i = 0; i < livingCount; i++)
+    {
+        cumulative += weights[i];
+        if (roll <= cumulative && weights[i] > 0.0f)
+            return livingIndices[i];
+    }
+
+    /* Barbarian slot sits at the end of the weight pool. */
+    if (barbarianWeight > 0.0f)
+        return TARGET_BARBARIANS;
+
+    return TARGET_NONE;
+}
+
+
+/*
+ * Default tax management: find optimal sales/income rates, then deviate
+ * by errorPct.  Customs is set independently (affects immigration).
+ */
+
+void CPUStrategy::manageTaxes(Player *aPlayer)
+{
+    /* Save current rates before optimization. */
+    int prevSales = aPlayer->salesTax;
+    int prevIncome = aPlayer->incomeTax;
+
+    /* Find optimal sales and income tax rates. */
+    OptimizeTaxRates(aPlayer);
+    int optSales = aPlayer->salesTax;
+    int optIncome = aPlayer->incomeTax;
+
+    /* Blend optimal toward previous rates based on error.
+     * errorPct=50 (Village Fool): 100% previous rates (never changes).
+     * errorPct=5 (Machiavelli): 90% optimal, 10% inertia.
+     * adaptPct = 100 - 2*errorPct, clamped to [0, 100]. */
+    int adaptPct = 100 - 2 * errorPct;
+    if (adaptPct < 0) adaptPct = 0;
+    aPlayer->salesTax = (optSales * adaptPct + prevSales * (100 - adaptPct)) / 100;
+    aPlayer->incomeTax = (optIncome * adaptPct + prevIncome * (100 - adaptPct)) / 100;
+    aPlayer->customsTax = deviate(18, 50);
+
+    GameLog("  Tax adaptation: %d%% toward optimal (sales %d→%d→%d, "
+            "income %d→%d→%d)\n",
+            adaptPct, prevSales, optSales, aPlayer->salesTax,
+            prevIncome, optIncome, aPlayer->incomeTax);
+}
+
+
 int CPUStrategy::deviate(int optimal, int maxVal)
 {
     int range = maxVal * errorPct / 100;
@@ -182,12 +329,85 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     }
 
     /*
-     * Strategic purchases with remaining budget using shared functions.
-     * Priority: marketplaces (cheap, revenue + merchants) → palaces
-     * (nobles for soldier cap) → grain mills → foundries → shipyards.
+     * Strategic purchases with remaining budget.
+     *
+     * Guns vs butter: compute aggregate diplomacy to determine how much
+     * of the budget goes to military vs economy.  High aggregate diplomacy
+     * (many friends) → more butter.  Low/negative aggregate (enemies) →
+     * more guns.  gunsPct ranges from ~20% (all friends) to ~80% (all
+     * enemies), with 50% at neutral.
      */
 
     int desired, bought;
+    int pi = aPlayer - playerList;
+    float aggregateDiplomacy = 0.0f;
+    int livingCount = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == pi || playerList[i].dead)
+            continue;
+        aggregateDiplomacy += aPlayer->diplomacy[i];
+        livingCount++;
+    }
+    /* Normalize to [-1, 1] range, then map to guns percentage.
+     * avgDiplomacy = -1 → gunsPct = 80%, avgDiplomacy = 0 → 50%,
+     * avgDiplomacy = +1 → 20%. */
+    float avgDiplomacy = (livingCount > 0)
+                       ? aggregateDiplomacy / livingCount : 0.0f;
+    int gunsPct = 50 - static_cast<int>(avgDiplomacy * 30.0f);
+    if (gunsPct < 20) gunsPct = 20;
+    if (gunsPct > 80) gunsPct = 80;
+
+    int gunsBudget = aPlayer->treasury * gunsPct / 100;
+    int troopDeficit = aPlayer->desiredTroops - aPlayer->soldierCount;
+
+    GameLog("  Guns/butter: aggregate diplomacy=%.2f, guns=%d%% (%d), "
+            "butter=%d%%, troop deficit=%d\n",
+            aggregateDiplomacy, gunsPct, gunsBudget,
+            100 - gunsPct, troopDeficit);
+
+    /* === GUNS: military infrastructure === */
+    if (troopDeficit > 0 && gunsBudget > 0)
+    {
+        /* Determine which constraint is limiting troop recruitment. */
+        int totalPeople = aPlayer->serfCount + aPlayer->merchantCount
+                          + aPlayer->nobleCount;
+        int noblesCap = 20 * aPlayer->nobleCount;
+        float equipRatio = 0.05f + 0.015f * aPlayer->foundryCount;
+        int equipCap = static_cast<int>(equipRatio * totalPeople);
+
+        /* Buy palaces if noble leadership is the bottleneck. */
+        if (noblesCap <= equipCap)
+        {
+            desired = MIN(gunsBudget / COST_PALACE, RandRange(3));
+            bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
+                                        desired, COST_PALACE);
+            if (bought > 0)
+            {
+                boughtAnyPalaces = true;
+                gunsBudget -= bought * COST_PALACE;
+                GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
+                        bought, bought * COST_PALACE, aPlayer->treasury);
+            }
+        }
+
+        /* Buy foundries if equip ratio is the bottleneck. */
+        if (equipCap <= noblesCap)
+        {
+            desired = MIN(gunsBudget / COST_FOUNDRY, RandRange(3));
+            bought = PurchaseInvestment(aPlayer, &aPlayer->foundryCount,
+                                        desired, COST_FOUNDRY);
+            if (bought > 0)
+            {
+                gunsBudget -= bought * COST_FOUNDRY;
+                GameLog("  Bought %d foundries (-%d)  Treasury: %d\n",
+                        bought, bought * COST_FOUNDRY, aPlayer->treasury);
+            }
+        }
+
+    }
+
+    /* === BUTTER: economic infrastructure === */
 
     /* Marketplaces — cheap revenue generators. */
     desired = MIN(aPlayer->treasury / COST_MARKETPLACE, RandRange(3));
@@ -200,15 +420,18 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
                 bought, bought * COST_MARKETPLACE, aPlayer->treasury);
     }
 
-    /* Palaces — raise the soldier leadership cap. */
-    desired = MIN(aPlayer->treasury / COST_PALACE, RandRange(2));
-    bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
-                                desired, COST_PALACE);
-    if (bought > 0)
+    /* Palaces — economic pass (attract nobles for general growth). */
+    if (!boughtAnyPalaces)
     {
-        boughtAnyPalaces = true;
-        GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
-                bought, bought * COST_PALACE, aPlayer->treasury);
+        desired = MIN(aPlayer->treasury / COST_PALACE, RandRange(2));
+        bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
+                                    desired, COST_PALACE);
+        if (bought > 0)
+        {
+            boughtAnyPalaces = true;
+            GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
+                    bought, bought * COST_PALACE, aPlayer->treasury);
+        }
     }
 
     /*
@@ -228,7 +451,7 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
         GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
                 bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
 
-    /* Foundries — enable equipping more soldiers. */
+    /* Foundries — economic pass. */
     desired = MIN(aPlayer->treasury / COST_FOUNDRY, RandRange(2));
     bought = PurchaseInvestment(aPlayer, &aPlayer->foundryCount,
                                 desired, COST_FOUNDRY);
@@ -244,10 +467,13 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
         GameLog("  Bought %d shipyards (-%d)  Treasury: %d\n",
                 bought, bought * COST_SHIPYARD, aPlayer->treasury);
 
-    /* Recruit soldiers up to capacity using shared function. */
+    /* Recruit soldiers — target the deficit, capped by capacity. */
     SoldierCap cap = ComputeSoldierCap(aPlayer);
-    if (cap.maxSoldiers > 0)
-        PurchaseSoldiers(aPlayer, cap.maxSoldiers);
+    int recruitTarget = (troopDeficit > 0)
+                        ? MIN(troopDeficit, cap.maxSoldiers)
+                        : cap.maxSoldiers;
+    if (recruitTarget > 0)
+        PurchaseSoldiers(aPlayer, recruitTarget);
 }
 
 
@@ -262,12 +488,13 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
 int VillageFool::selectTarget(Player *aPlayer, int *livingIndices,
                               int livingCount)
 {
+    /* 70% chance to attack a player (diplomacy-weighted), else barbarians. */
     if ((livingCount > 0) && (RandRange(10) > 3))
-        return livingIndices[RandRange(livingCount) - 1];
+        return selectTargetByDiplomacy(aPlayer, livingIndices, livingCount, 0.0f);
     if (barbarianLand > 0)
         return TARGET_BARBARIANS;
     if (livingCount > 0)
-        return livingIndices[RandRange(livingCount) - 1];
+        return selectTargetByDiplomacy(aPlayer, livingIndices, livingCount, 0.0f);
     return TARGET_NONE;
 }
 
@@ -281,12 +508,6 @@ void VillageFool::manageInvestments(Player *aPlayer)
     cpuInvest(aPlayer);
 }
 
-void VillageFool::manageTaxes(Player *aPlayer)
-{
-    aPlayer->customsTax = deviate(18, 50);
-    aPlayer->salesTax = deviate(8, 20);
-    aPlayer->incomeTax = deviate(28, 35);
-}
 
 
 /*==============================================================================
@@ -305,14 +526,8 @@ int LandedPeasant::selectTarget(Player *aPlayer, int *livingIndices,
     if (livingCount <= 0)
         return TARGET_NONE;
 
-    int a = livingIndices[RandRange(livingCount) - 1];
-    if (livingCount > 1)
-    {
-        int b = livingIndices[RandRange(livingCount) - 1];
-        if (playerList[b].soldierCount < playerList[a].soldierCount)
-            a = b;
-    }
-    return a;
+    /* Diplomacy-weighted selection, no soldier requirement. */
+    return selectTargetByDiplomacy(aPlayer, livingIndices, livingCount, 0.0f);
 }
 
 int LandedPeasant::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
@@ -326,12 +541,6 @@ void LandedPeasant::manageInvestments(Player *aPlayer)
     cpuInvest(aPlayer);
 }
 
-void LandedPeasant::manageTaxes(Player *aPlayer)
-{
-    aPlayer->customsTax = deviate(18, 50);
-    aPlayer->salesTax = deviate(8, 20);
-    aPlayer->incomeTax = deviate(28, 35);
-}
 
 
 /*==============================================================================
@@ -345,31 +554,11 @@ void LandedPeasant::manageTaxes(Player *aPlayer)
 int MinorNoble::selectTarget(Player *aPlayer, int *livingIndices,
                              int livingCount)
 {
-    int bestIndex = TARGET_NONE;
-    int bestScore = 0;
-
     if ((barbarianLand > 2000) && (RandRange(10) < 5))
         return TARGET_BARBARIANS;
 
-    for (int i = 0; i < livingCount; i++)
-    {
-        Player *candidate = &(playerList[livingIndices[i]]);
-        if (candidate->soldierCount < aPlayer->soldierCount)
-        {
-            int score = aPlayer->soldierCount - candidate->soldierCount;
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestIndex = livingIndices[i];
-            }
-        }
-    }
-
-    if (bestIndex != TARGET_NONE)
-        return bestIndex;
-    if (barbarianLand > 0)
-        return TARGET_BARBARIANS;
-    return TARGET_NONE;
+    /* Diplomacy-weighted selection among weaker players (1:1 odds). */
+    return selectTargetByDiplomacy(aPlayer, livingIndices, livingCount, 1.0f);
 }
 
 int MinorNoble::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
@@ -383,12 +572,6 @@ void MinorNoble::manageInvestments(Player *aPlayer)
     cpuInvest(aPlayer);
 }
 
-void MinorNoble::manageTaxes(Player *aPlayer)
-{
-    aPlayer->customsTax = deviate(18, 50);
-    aPlayer->salesTax = deviate(8, 20);
-    aPlayer->incomeTax = deviate(28, 35);
-}
 
 
 /*==============================================================================
@@ -402,31 +585,8 @@ void MinorNoble::manageTaxes(Player *aPlayer)
 int RoyalAdvisor::selectTarget(Player *aPlayer, int *livingIndices,
                                int livingCount)
 {
-    int bestIndex = TARGET_NONE;
-    int bestScore = 0;
-
-    for (int i = 0; i < livingCount; i++)
-    {
-        Player *candidate = &(playerList[livingIndices[i]]);
-        if (aPlayer->soldierCount < (candidate->soldierCount * 3 / 2))
-            continue;
-        int score = candidate->land;
-        if (candidate->soldierCount > 0)
-            score = score / (candidate->soldierCount + 1);
-        else
-            score = score * 3;
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestIndex = livingIndices[i];
-        }
-    }
-
-    if (bestIndex != TARGET_NONE)
-        return bestIndex;
-    if (barbarianLand > 0)
-        return TARGET_BARBARIANS;
-    return TARGET_NONE;
+    /* Diplomacy-weighted selection, requires 1.5:1 soldier advantage. */
+    return selectTargetByDiplomacy(aPlayer, livingIndices, livingCount, 1.5f);
 }
 
 int RoyalAdvisor::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
@@ -443,12 +603,6 @@ void RoyalAdvisor::manageInvestments(Player *aPlayer)
     cpuInvest(aPlayer);
 }
 
-void RoyalAdvisor::manageTaxes(Player *aPlayer)
-{
-    aPlayer->customsTax = deviate(18, 50);
-    aPlayer->salesTax = deviate(8, 20);
-    aPlayer->incomeTax = deviate(28, 35);
-}
 
 
 /*==============================================================================
@@ -462,64 +616,11 @@ void RoyalAdvisor::manageTaxes(Player *aPlayer)
 int Machiavelli::selectTarget(Player *aPlayer, int *livingIndices,
                               int livingCount)
 {
-    int humanLeaderIndex = TARGET_NONE;
-    int humanLeaderStrength = 0;
-    int worstIndex = TARGET_NONE;
-    int worstScore = 999999;
-    int bestWoundedIndex = TARGET_NONE;
-    int bestWoundedScore = 0;
-
-    for (int i = 0; i < livingCount; i++)
-    {
-        Player *candidate = &(playerList[livingIndices[i]]);
-
-        if (candidate->human)
-        {
-            int strength = candidate->soldierCount
-                           + (candidate->land / 100)
-                           + (candidate->nobleCount * 50);
-            if (strength > humanLeaderStrength)
-            {
-                humanLeaderStrength = strength;
-                humanLeaderIndex = livingIndices[i];
-            }
-        }
-
-        if (candidate->soldierCount < worstScore)
-        {
-            worstScore = candidate->soldierCount;
-            worstIndex = livingIndices[i];
-        }
-
-        if ((candidate->attackCount > 0) &&
-            (aPlayer->soldierCount > candidate->soldierCount))
-        {
-            int score = aPlayer->soldierCount
-                        - candidate->soldierCount
-                        + candidate->land;
-            if (score > bestWoundedScore)
-            {
-                bestWoundedScore = score;
-                bestWoundedIndex = livingIndices[i];
-            }
-        }
-    }
-
-    if ((humanLeaderIndex != TARGET_NONE) &&
-        (aPlayer->soldierCount >=
-         playerList[humanLeaderIndex].soldierCount * 2))
-        return humanLeaderIndex;
-
-    if (bestWoundedIndex != TARGET_NONE)
-        return bestWoundedIndex;
-
-    if ((worstIndex != TARGET_NONE) &&
-        (aPlayer->soldierCount >= playerList[worstIndex].soldierCount * 2))
-        return worstIndex;
-
-    if (barbarianLand > 0)
-        return TARGET_BARBARIANS;
-    return TARGET_NONE;
+    /* Diplomacy-weighted selection with 2:1 odds requirement.
+     * Diplomacy naturally targets enemies: players who attacked us have
+     * diplomacy of -1, and wounded players (who just attacked someone)
+     * tend to have low diplomacy with observers. */
+    return selectTargetByDiplomacy(aPlayer, livingIndices, livingCount, 2.0f);
 }
 
 int Machiavelli::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
@@ -548,12 +649,6 @@ void Machiavelli::manageInvestments(Player *aPlayer)
     cpuInvest(aPlayer);
 }
 
-void Machiavelli::manageTaxes(Player *aPlayer)
-{
-    aPlayer->customsTax = deviate(18, 50);
-    aPlayer->salesTax = deviate(8, 20);
-    aPlayer->incomeTax = deviate(28, 35);
-}
 
 
 /*

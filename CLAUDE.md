@@ -20,7 +20,7 @@ Requires: `g++` (C++17), `ncurses`, `libm`.
 | File | Purpose |
 |------|---------|
 | `empire.h` | All shared types (Country, Player, Battle), globals, macros, prototypes |
-| `economy.h` / `economy.cpp` | Centralized economic rules: all formulas for grain, population, revenue, purchases, trading. Single source of truth for investment costs. |
+| `economy.h` / `economy.cpp` | Centralized economic rules: grain, population, revenue, purchases, trading, diplomacy, tax optimization, military planning. Single source of truth for investment costs and tuning constants. |
 | `cpu_strategy.h` | CPUStrategy abstract base class + 5 derived classes. Each has `errorPct` for decision quality. |
 | `ui.h` / `ui.cpp` | UI helper library: colors, dynamic sizing, screen templates, separators, column formatting |
 | `empire.cpp` | Main loop, setup screens, CPU economic phases, ShowMessage, FmtNum, ParseNum |
@@ -67,12 +67,57 @@ The game uses the full terminal (dynamic `winrows` x `wincols`). Content flows f
 ### Key Design Decisions
 
 - **Fair economics**: CPU players run through identical formulas as humans (grain, population, investments). No hidden bonuses.
-- **Strategy pattern**: `CPUStrategy` is an abstract C++ class. Five concrete subclasses implement `selectTarget()`, `chooseSoldiersToSend()`, `manageInvestments()`, `manageTaxes()`. Difficulty only affects decisions, not outcomes.
-- **Error rate system**: Each difficulty has `errorPct` (50% → 5%). The `deviate(optimal, maxVal)` helper applies random error to taxes, investments, and grain trading. Investment waste budget = `errorPct`% of treasury.
+- **Strategy pattern**: `CPUStrategy` is an abstract C++ class. Five concrete subclasses implement `selectTarget()`, `chooseSoldiersToSend()`, `manageInvestments()`. Base class provides default `manageTaxes()` and `manageGrainTrade()`. Difficulty only affects decisions, not outcomes.
+- **Error rate system**: Each difficulty has `errorPct` (50% → 5%). The `deviate(optimal, maxVal)` helper applies random error. `errorPct` also controls: investment waste budget, attack weight blending toward uniform, tax adaptation rate (`adaptPct = 100 - 2*errorPct`).
 - **`ShowMessage(fmt, ...)`**: Printf-style function that prints, refreshes, and delays proportional to word count (200ms/word, min DELAY_TIME). Use this instead of `printw()` + `refresh()` + `usleep()` for any message the player needs to read.
 - **`CLEAR_MSG_AREA()`**: Macro that clears rows 14-15 and positions cursor at row 14. Used before every prompt or error.
 - **`RandRange(n)`**: Returns 1..n (1-based, not 0-based). Returns 0 if n <= 0.
 - **Battle helpers**: `InitBattle()`, `SetBattleTarget()`, `ApplyBattleResults()` — shared between human and CPU attack paths.
+
+### Diplomacy System (`economy.h` / `economy.cpp`)
+
+CPU players track diplomacy scores (float) toward every other player. Scores drive attack targeting, investment priorities, and retaliation planning.
+
+**Diplomacy lifecycle:**
+- **Init**: Random values in `[-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]` (±0.25)
+- **Decay**: All CPU scores decay 10% toward zero at the start of each player's turn
+- **Peace bonus**: +0.05 per peaceful turn (skipped during treaty years)
+- **Direct attack**: Target sets score to -1.0 toward attacker
+- **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it (amplified by target weakness × attacker strength)
+
+**Tuning constants** (all `constexpr float` in `economy.h`):
+`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_ATTACKED_ME`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`
+
+**Key helpers:**
+- `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks
+- `PredictThirdPartyShift(observer, target, attacker)` — used by both `UpdateDiplomacyAfterTurn` and `SimulateAttackOutcome`
+- `ComputePlayerPower(player)` — composite score (soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000)
+- `ComputeRetaliationReserve(player)` — net threat from scores × soldiers, reduced by allies
+- `ComputeDesiredTroopStrength(player)` — reserve + 1.5× worst enemy's soldiers
+- `SimulateAttackOutcome(attacker, targetIdx)` — predicts diplomatic fallout and retaliation risk
+- `ComputeExpectedRevenue(player, salesTax, incomeTax)` — deterministic revenue prediction
+- `OptimizeTaxRates(player)` — brute-force 756 combinations for optimal sales/income rates
+- `LogAllDiplomacy(label)`, `LogPlayerDiplomacy(player)` — structured logging
+
+### CPU Turn Architecture
+
+CPU turns follow: Grain → Population → **Military Planning** → Investments → Attack.
+
+**Military Planning** (`ComputeDesiredTroopStrength`): Runs before investments to estimate army needs. Sets `player->desiredTroops = reserve + attackTroops`.
+
+**Investments** (`cpuInvest`): Guns-vs-butter split based on aggregate diplomacy. `gunsPct = 50 - avgDiplomacy * 30`, clamped to [20%, 80%]. Guns budget buys palaces/foundries (whichever bottlenecks troop capacity). Butter buys economic infrastructure normally.
+
+**Attack** (`selectTargetByDiplomacy`): Unified decision combining:
+1. **Diplomacy weight**: `max(0.01, 1 - score)`, amplified by weakness for enemies
+2. **Envy**: `(targetPower/attackerPower - 1)² × ENVY_SCALE` — quadratic growth ensures powerful turtles become targets
+3. **Theory of mind**: `SimulateAttackOutcome` predicts diplomatic consequences and retaliation
+4. **Barbarians**: Weighted by attacker's military strength, competes in the same pool
+5. **Error blend**: `w = w * (1 - errorPct/100) + 1.0 * (errorPct/100)` — dumber CPUs pick more randomly
+6. **Attack probability**: `effectiveChance = aggression * maxWeight`, capped at 95%
+
+CPUs attack multiple times per turn (up to `nobles/4 + 1`), re-evaluating targets and reserves after each battle.
+
+**Tax optimization** (`manageTaxes`): Base class finds optimal sales/income rates via `OptimizeTaxRates`, then blends toward previous rates by `adaptPct` (Village Fool: 0% adaptation, Machiavelli: 90%). Customs uses `deviate(18, 50)`.
 
 ### Constants
 
@@ -83,6 +128,12 @@ Defined as `constexpr int` in `empire.h`:
 
 Investment costs defined as `constexpr` in `economy.h` (single source of truth):
 - `COST_MARKETPLACE`=1000, `COST_GRAIN_MILL`=2000, `COST_FOUNDRY`=7000, `COST_SHIPYARD`=8000, `COST_SOLDIER`=8, `COST_PALACE`=5000
+
+Additional globals in `empire.h` / `empire.cpp`:
+- `treatyYears` — no player-vs-player attacks before this year, `5 - difficulty` (L1=5, L5=1)
+- `Player::diplomacy[COUNTRY_COUNT]` — per-player scores toward each other player
+- `Player::attackedTargets` — bitmask of players attacked this turn (for post-turn updates)
+- `Player::desiredTroops` — military planning target, set before investments phase
 
 ## Conventions
 
@@ -117,7 +168,7 @@ Investment costs defined as `constexpr` in `economy.h` (single source of truth):
 - Fog of war is intentional — don't show enemy soldier counts on attack screen
 - Combat delay: mathematical curves only (`37.5ms * sqrt(smaller_force)`), recalculated each round
 - Message delays scale by word count via `ShowMessage()`, never below DELAY_TIME (2s)
-- Grain feeding defaults to required amount on empty ENTER; only confirm if excess > 2x army need or 4x people need AND absolute difference > 10 bushels
+- Grain feeding defaults to required amount on empty ENTER; `+` feeds 150%, `++` feeds 200% (people only). Only confirm if excess > 2x army need or 4x people need AND absolute difference > 10 bushels
 - Soldier purchase caps should explain the limiting factor (nobles, foundries, serfs, treasury)
 - Purchase prompts should show the maximum affordable/available amount
 - Prefer clean code patterns: strategy pattern, no switch-on-difficulty, no duplicated strings
@@ -131,3 +182,6 @@ Investment costs defined as `constexpr` in `economy.h` (single source of truth):
 - Always update README and other docs when changing functionality or design
 - Always gitignore log files and build artifacts
 - `FmtNum()` has only 4 rotating buffers — never exceed 4 calls per single `printw()`
+- Summary screen ranks players by `ComputePlayerPower` (same score that drives CPU envy)
+- Round-start logs use ASCII tables for country stats and diplomacy matrix
+- Tuning constants (`DIPLOMACY_*`) should be kept in `economy.h` for easy tweaking

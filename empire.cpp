@@ -164,6 +164,7 @@ int weather;
 int barbarianLand = 6000;
 int gameOver = false;
 int difficulty = 2;
+int treatyYears = 3;
 bool omniscient = false;
 bool fastMode = false;
 
@@ -216,6 +217,68 @@ int main(int argc, char *argv[])
         /* Start a new year. */
         NewYearScreen();
 
+        /* Log detailed stats and diplomacy for all countries. */
+        GameLog("\n################################################################"
+                "################\n");
+        GameLog("###  YEAR %d  ###\n", year);
+        GameLog("################################################################"
+                "################\n");
+        /* Stats table. */
+        GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
+                "Country", "Land", "Grain", "Gold", "Serfs", "Merch",
+                "Nob", "Army", "Mkt", "Mil", "Fnd", "Shp", "Pal",
+                "Cus", "Sal", "Inc", "Power");
+        GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
+                "--------------", "------", "------", "-------",
+                "------", "-----", "----", "-----",
+                "---", "---", "---", "---", "---",
+                "---", "---", "---", "------");
+        for (i = 0; i < COUNTRY_COUNT; i++)
+        {
+            Player *p = &playerList[i];
+            if (p->dead)
+            {
+                GameLog("%-14s  -- DEAD --\n", p->country->name);
+                continue;
+            }
+            GameLog("%-13s%s %6d %6d %7d %6d %5d %4d %5d  %3d %3d %3d %3d %3d  %3d/%3d/%3d  %6.0f\n",
+                    p->country->name, p->human ? "*" : " ",
+                    p->land, p->grain, p->treasury,
+                    p->serfCount, p->merchantCount, p->nobleCount,
+                    p->soldierCount,
+                    p->marketplaceCount, p->grainMillCount,
+                    p->foundryCount, p->shipyardCount, p->palaceCount,
+                    p->customsTax, p->salesTax, p->incomeTax,
+                    ComputePlayerPower(p));
+        }
+        GameLog("\n");
+
+        /* Diplomacy table. */
+        GameLog("Diplomacy:       ");
+        for (i = 0; i < COUNTRY_COUNT; i++)
+        {
+            if (!playerList[i].dead)
+                GameLog(" %10s", playerList[i].country->name);
+        }
+        GameLog("\n");
+        for (i = 0; i < COUNTRY_COUNT; i++)
+        {
+            if (playerList[i].dead || playerList[i].human)
+                continue;
+            GameLog("%-14s ", playerList[i].country->name);
+            for (int j = 0; j < COUNTRY_COUNT; j++)
+            {
+                if (playerList[j].dead)
+                    continue;
+                if (i == j)
+                    GameLog(" %10s", "---");
+                else
+                    GameLog(" %+10.3f", playerList[i].diplomacy[j]);
+            }
+            GameLog("\n");
+        }
+        GameLog("\n");
+
         /* Randomize the turn order for this year. */
         int turnOrder[COUNTRY_COUNT];
         for (i = 0; i < COUNTRY_COUNT; i++)
@@ -239,11 +302,17 @@ int main(int argc, char *argv[])
             if (player->dead)
                 continue;
 
+            /* Decay diplomacy scores toward zero at the start of each turn. */
+            DecayDiplomacy(player);
+
             /* Play as human or CPU. */
             if (player->human)
                 PlayHuman(player);
             else
                 PlayCPU(player);
+
+            /* Update diplomacy based on whether this player attacked. */
+            UpdateDiplomacyAfterTurn(player);
 
             /* Check for game over conditions. */
             {
@@ -502,6 +571,11 @@ static void GameSetupScreen()
         getnstr(input, sizeof(input));
         difficulty = ParseNum(input) - 1;
     } while ((difficulty < 0) || (difficulty >= DIFFICULTY_COUNT));
+
+    /* Treaty period scales inversely with difficulty:
+     * Level 1 → 5, Level 2 → 4, Level 3 → 3, Level 4 → 2, Level 5 → 1. */
+    treatyYears = 5 - difficulty;
+
     printw("\n");
 
     /* Get the player names. */
@@ -578,7 +652,11 @@ static void GameSetupScreen()
         player->palaceCount = 0;
         player->grainForSale = 0;
         player->grainPrice = 0.0;
+        player->attackedTargets = 0;
     }
+
+    /* Initialize diplomacy scores between all players. */
+    InitDiplomacy();
 }
 
 
@@ -615,7 +693,7 @@ static void SummaryScreen()
 
     UITitle("Summary");
 
-    /* Collect and sort living players by land descending. */
+    /* Collect and sort living players by power score descending. */
     int sorted[COUNTRY_COUNT];
     int livingCount = 0;
     for (i = 0; i < COUNTRY_COUNT; i++)
@@ -626,7 +704,8 @@ static void SummaryScreen()
     }
     for (int a = 0; a < livingCount - 1; a++)
         for (int b = a + 1; b < livingCount; b++)
-            if (playerList[sorted[b]].land > playerList[sorted[a]].land)
+            if (ComputePlayerPower(&playerList[sorted[b]]) >
+                ComputePlayerPower(&playerList[sorted[a]]))
             {
                 int tmp = sorted[a];
                 sorted[a] = sorted[b];
@@ -751,6 +830,9 @@ static void PlayCPU(Player *aPlayer)
     CPUPopulationPhase(aPlayer);
     if (aPlayer->dead)
         return;
+
+    GameLog("--- Military Planning ---\n");
+    ComputeDesiredTroopStrength(aPlayer);
 
     GameLog("--- Investments Phase ---\n");
     CPUInvestmentsPhase(aPlayer);

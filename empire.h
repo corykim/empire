@@ -99,6 +99,8 @@ struct Country
  *   armyGrainFeed          How much grain to feed army for year.
  *   diedStarvation         How many people died of starvation.
  *   attackCount            Count of the number of attacks this year.
+ *   attackedTargets        Bitmask of players attacked this turn (by index).
+ *   diplomacy                Diplomacy scores toward each other player (-1..1+).
  */
 
 struct Player
@@ -145,6 +147,9 @@ struct Player
     int                     armyGrainFeed;
     int                     diedStarvation;
     int                     attackCount;
+    int                     attackedTargets;
+    int                     desiredTroops;
+    float                   diplomacy[COUNTRY_COUNT];
 };
 
 
@@ -226,6 +231,7 @@ extern int weather;
 extern int barbarianLand;
 extern int done;
 extern int difficulty;
+extern int treatyYears;
 extern bool omniscient;
 extern bool fastMode;
 

@@ -31,6 +31,190 @@ constexpr int COST_PALACE      = 5000;
 
 /*------------------------------------------------------------------------------
  *
+ * Diplomacy tuning constants.
+ */
+
+constexpr float DIPLOMACY_INIT_RANGE       = 0.25f;  /* Initial range: [-0.25, 0.25] */
+constexpr float DIPLOMACY_PEACE_BONUS      = 0.05f;  /* Per-turn bonus for not attacking */
+constexpr float DIPLOMACY_ATTACKED_ME      = -1.0f;  /* Set diplomacy to this if attacked */
+constexpr float DIPLOMACY_DECAY_RATE       = 0.10f;  /* Decay toward zero per turn */
+constexpr float DIPLOMACY_THIRD_PARTY_SCALE = 1.0f;  /* Scale for third-party attack effects */
+constexpr float DIPLOMACY_WEAKNESS_SCALE   = 1.0f;   /* How much weakness amplifies effects */
+constexpr float DIPLOMACY_ENVY_SCALE      = 1.5f;   /* Scale for envy toward powerful targets */
+constexpr float DIPLOMACY_RESERVE_SCALE    = 0.5f;   /* Fraction of worst threat to hold in reserve */
+
+
+/*------------------------------------------------------------------------------
+ *
+ * Diplomacy functions.
+ */
+
+/*
+ * Initialize diplomacy scores for all players to random values in
+ * [-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE].  Self-diplomacy is 0.
+ */
+
+void InitDiplomacy();
+
+
+/*
+ * Decay diplomacy scores toward zero for all CPU players' views of the
+ * given player.  Called at the start of each player's turn.
+ *
+ *   aPlayer                Player whose turn is starting.
+ */
+
+void DecayDiplomacy(Player *aPlayer);
+
+
+/*
+ * Update diplomacy scores after a player finishes their turn.
+ * If the player attacked no one, all CPUs increase diplomacy toward them.
+ * If the player attacked, diplomacy is adjusted based on who was attacked.
+ *
+ *   aPlayer                Player whose turn just ended.
+ */
+
+void UpdateDiplomacyAfterTurn(Player *aPlayer);
+
+
+/*
+ * Log all diplomacy scores for all CPU players.
+ *
+ *   label                  Header label for the log section.
+ */
+
+void LogAllDiplomacy(const char *label);
+
+
+/*
+ * Log a single player's diplomacy scores toward all other players.
+ *
+ *   aPlayer                Player whose diplomacy to log.
+ */
+
+void LogPlayerDiplomacy(Player *aPlayer);
+
+
+/*
+ * Return the highest soldier count among all living players (min 1).
+ */
+
+int MaxSoldiers();
+
+
+/*
+ * Return military weakness of a player: 0.0 = strongest, 1.0 = no soldiers.
+ * Uses MaxSoldiers() as the baseline.
+ *
+ *   soldierCount           Soldier count of the player to evaluate.
+ */
+
+float MilitaryWeakness(int soldierCount);
+
+
+/*
+ * Compute the diplomacy-based attack weight for a target.
+ *   weight = max(0.01, 1 - diplomacy)
+ * If diplomacy is negative, the target's weakness amplifies the weight:
+ *   weight *= (1 + weakness * DIPLOMACY_WEAKNESS_SCALE)
+ *
+ *   diplomacy                Attacker's diplomacy toward the target.
+ *   targetSoldierCount     Target's soldier count (for weakness calc).
+ */
+
+float DiplomacyAttackWeight(float diplomacy, int targetSoldierCount);
+
+
+/*
+ * Predict how an observer's diplomacy toward the attacker would shift
+ * if the attacker attacks the target (a third party, not the observer).
+ * Returns the shift amount (positive = observer likes attacker more,
+ * negative = observer likes attacker less).
+ *
+ *   observerIdx            Index of the observing player.
+ *   targetIdx              Index of the attack target.
+ *   attackerIdx             Index of the attacker.
+ */
+
+float PredictThirdPartyShift(int observerIdx, int targetIdx, int attackerIdx);
+
+
+/*
+ * Compute how many soldiers a CPU player should hold in reserve to
+ * withstand retaliation.  Uses theory of mind: reads other players'
+ * diplomacy scores toward this player to estimate threat.  Each enemy's
+ * soldier count is weighted by how negative their diplomacy is.
+ *
+ *   aPlayer                CPU player.
+ */
+
+int ComputeRetaliationReserve(Player *aPlayer);
+
+
+/*
+ * Return a composite power score for a player:
+ *   soldiers + land/50 + treasury/500
+ * Minimum 1.0 to avoid division by zero.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+float ComputePlayerPower(Player *aPlayer);
+
+
+/*
+ * Estimate desired troop strength for a CPU player based on:
+ *   - Retaliation reserve (defense against enemies)
+ *   - Estimated troops needed for attack phase (offensive ambitions)
+ * Sets aPlayer->desiredTroops and returns the value.
+ *
+ *   aPlayer                CPU player.
+ */
+
+int ComputeDesiredTroopStrength(Player *aPlayer);
+
+
+/*
+ * Simulate the diplomatic consequences of an attack and return a net
+ * score.  Positive = diplomatically favorable, negative = risky.
+ *
+ * For each observer, predicts diplomacy shifts using the same rules as
+ * UpdateDiplomacyAfterTurn, then estimates retaliation risk from any
+ * player whose predicted diplomacy toward us would be negative.
+ *
+ *   attacker               Attacking CPU player.
+ *   targetIdx              Index into playerList of the attack target.
+ */
+
+float SimulateAttackOutcome(Player *attacker, int targetIdx);
+
+
+/*
+ * Compute expected total revenue for a player at given tax rates,
+ * using expected values for random components.  Does not modify player
+ * state.  Used by CPU to optimize tax rates.
+ *
+ *   aPlayer                Player to evaluate.
+ *   salesTax               Sales tax rate (0-20).
+ *   incomeTax              Income tax rate (0-35).
+ */
+
+int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax);
+
+
+/*
+ * Find the sales and income tax rates that maximize expected revenue
+ * for a CPU player.  Sets aPlayer->salesTax and aPlayer->incomeTax.
+ *
+ *   aPlayer                CPU player.
+ */
+
+void OptimizeTaxRates(Player *aPlayer);
+
+
+/*------------------------------------------------------------------------------
+ *
  * Grain phase.
  */
 

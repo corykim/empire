@@ -46,7 +46,7 @@ static void Sack(Player *aTargetPlayer);
 
 static void DrawAttackScreen(Player *aPlayer);
 
-static void CPUAttack(Player *aPlayer, Player *aTargetPlayer);
+static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve);
 
 static void DisplayCPUBattleResults(Battle *aBattle);
 
@@ -141,51 +141,69 @@ void CPUAttackScreen(Player *aPlayer)
 {
     CPUStrategy *strategy = cpuStrategies[difficulty];
     Player *targetPlayer;
-    int     attackChance;
     int     targetIndex;
     int     i;
     int     livingCount;
     int     livingIndices[COUNTRY_COUNT];
+    int     maxAttacks;
 
-    /* Don't attack before the third year. */
-    if (year < 3)
+    /* Log this CPU's diplomacy scores before attack decisions. */
+    LogPlayerDiplomacy(aPlayer);
+
+    /* Don't attack during the treaty period. */
+    if (year < treatyYears)
         return;
 
     /* Don't attack if no soldiers. */
     if (aPlayer->soldierCount <= 0)
         return;
 
-    /* Decide whether to attack this year using the strategy's aggression. */
-    attackChance = strategy->attackChanceBase
-                   + (strategy->attackChancePerYear * year);
-    if (attackChance > 95)
-        attackChance = 95;
-    if (RandRange(100) >= attackChance)
-        return;
-
-    /* Build a list of living players that are not this CPU player. */
-    livingCount = 0;
-    for (i = 0; i < COUNTRY_COUNT; i++)
-    {
-        if (!playerList[i].dead && (&playerList[i] != aPlayer))
-            livingIndices[livingCount++] = i;
-    }
-
-    if (livingCount == 0 && barbarianLand == 0)
-        return;
-
-    /* Delegate target selection to the strategy. */
-    targetIndex = strategy->selectTarget(aPlayer, livingIndices, livingCount);
-    if (targetIndex == -1)
-        return;
-    targetPlayer = (targetIndex == -2) ? nullptr : &(playerList[targetIndex]);
-
-    GameLog("  Target: %s\n",
-            targetPlayer ? targetPlayer->country->name : "Barbarians");
-
-    /* Attack. */
+    /* Maximum attacks per year, same rule as humans. */
+    maxAttacks = (aPlayer->nobleCount / 4) + 1;
     aPlayer->attackCount = 0;
-    CPUAttack(aPlayer, targetPlayer);
+
+    /* Compute the soldier reserve needed to withstand retaliation. */
+    int reserve = ComputeRetaliationReserve(aPlayer);
+
+    /* Attack loop — re-evaluate targets and reserves after each battle. */
+    while (aPlayer->attackCount < maxAttacks)
+    {
+        /* Stop if remaining soldiers can't exceed the reserve. */
+        if (aPlayer->soldierCount <= reserve)
+        {
+            GameLog("  Holding %d soldiers in reserve (need %d)\n",
+                    aPlayer->soldierCount, reserve);
+            break;
+        }
+
+        /* Rebuild the living player list (targets may have died). */
+        livingCount = 0;
+        for (i = 0; i < COUNTRY_COUNT; i++)
+        {
+            if (!playerList[i].dead && (&playerList[i] != aPlayer))
+                livingIndices[livingCount++] = i;
+        }
+
+        if (livingCount == 0 && barbarianLand == 0)
+            break;
+
+        /* Delegate target selection to the strategy (includes attack roll). */
+        targetIndex = strategy->selectTarget(aPlayer, livingIndices,
+                                             livingCount);
+        if (targetIndex == TARGET_NONE)
+            break;
+        targetPlayer = (targetIndex == TARGET_BARBARIANS)
+                       ? nullptr : &(playerList[targetIndex]);
+
+        GameLog("  Attack #%d target: %s\n", aPlayer->attackCount + 1,
+                targetPlayer ? targetPlayer->country->name : "Barbarians");
+
+        /* Attack, holding reserve soldiers back. */
+        CPUAttack(aPlayer, targetPlayer, reserve);
+
+        /* Recompute reserve — diplomacy and soldier counts may have changed. */
+        reserve = ComputeRetaliationReserve(aPlayer);
+    }
 }
 
 
@@ -274,6 +292,8 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
                                Player *aTargetPlayer)
 {
     aPlayer->attackCount++;
+    if (aTargetPlayer != nullptr)
+        aPlayer->attackedTargets |= (1 << (aTargetPlayer - playerList));
     int soldiersLost = aBattle->soldiersToAttackCount - aBattle->soldierCount;
     aPlayer->soldierCount -= soldiersLost;
     if (aTargetPlayer != nullptr)
@@ -323,12 +343,12 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
 {
     Battle battle;
 
-    /* Can't attack other players until the third year. */
-    if ((aTargetPlayer != nullptr) && (year < 3))
+    /* Can't attack other players during the treaty period. */
+    if ((aTargetPlayer != nullptr) && (year < treatyYears))
     {
         CLEAR_MSG_AREA();
         ShowMessage("Due to international treaty, you cannot attack\n"
-                    "other nations until the third year.");
+                    "other nations until year %d.", treatyYears);
         return;
     }
 
@@ -360,10 +380,11 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
  *   aTargetPlayer          Player to attack.
  */
 
-static void CPUAttack(Player *aPlayer, Player *aTargetPlayer)
+static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
 {
     Battle battle;
     int    soldiersToSend;
+    int    available;
 
     /* If attacking the barbarians, make sure they have land. */
     if ((aTargetPlayer == nullptr) && (barbarianLand == 0))
@@ -372,11 +393,14 @@ static void CPUAttack(Player *aPlayer, Player *aTargetPlayer)
     /* Set up the battle. */
     InitBattle(&battle, aPlayer);
 
-    /* Delegate troop commitment to the strategy. */
+    /* Delegate troop commitment to the strategy, capped by reserve. */
+    available = aPlayer->soldierCount - reserve;
+    if (available <= 0)
+        return;
     soldiersToSend = cpuStrategies[difficulty]->chooseSoldiersToSend(
                          aPlayer, aTargetPlayer);
-    if (soldiersToSend > aPlayer->soldierCount)
-        soldiersToSend = aPlayer->soldierCount;
+    if (soldiersToSend > available)
+        soldiersToSend = available;
     if (soldiersToSend <= 0)
         return;
     battle.soldiersToAttackCount = soldiersToSend;

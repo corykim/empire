@@ -51,8 +51,390 @@ void GameLog(const char *fmt, ...)
 
 /*------------------------------------------------------------------------------
  *
+ * Diplomacy.
+ */
+
+void InitDiplomacy()
+{
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        for (int j = 0; j < COUNTRY_COUNT; j++)
+        {
+            if (i == j)
+            {
+                playerList[i].diplomacy[j] = 0.0f;
+            }
+            else
+            {
+                /* Random value in [-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]. */
+                float r = static_cast<float>(RandRange(1001) - 501) / 500.0f;
+                playerList[i].diplomacy[j] = r * DIPLOMACY_INIT_RANGE;
+            }
+        }
+        playerList[i].attackedTargets = 0;
+    }
+    LogAllDiplomacy("Diplomacy Initialized");
+}
+
+
+void DecayDiplomacy(Player *aPlayer)
+{
+    int pi = aPlayer - playerList;
+
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == pi || playerList[i].dead || playerList[i].human)
+            continue;
+
+        float old = playerList[i].diplomacy[pi];
+        playerList[i].diplomacy[pi] *= (1.0f - DIPLOMACY_DECAY_RATE);
+        GameLog("  Diplomacy decay: %s→%s %.3f→%.3f\n",
+                playerList[i].country->name, aPlayer->country->name,
+                old, playerList[i].diplomacy[pi]);
+    }
+}
+
+
+void UpdateDiplomacyAfterTurn(Player *aPlayer)
+{
+    int pi = aPlayer - playerList;
+
+    if (aPlayer->attackedTargets == 0)
+    {
+        /* Peaceful turn: all CPUs increase diplomacy toward this player.
+         * No peace bonus during treaty years — peace is mandatory. */
+        if (year >= treatyYears)
+        {
+            for (int i = 0; i < COUNTRY_COUNT; i++)
+            {
+                if (i == pi || playerList[i].dead || playerList[i].human)
+                    continue;
+
+                float old = playerList[i].diplomacy[pi];
+                playerList[i].diplomacy[pi] += DIPLOMACY_PEACE_BONUS;
+                GameLog("  Diplomacy peace: %s→%s %.3f→%.3f\n",
+                        playerList[i].country->name, aPlayer->country->name,
+                        old, playerList[i].diplomacy[pi]);
+            }
+        }
+    }
+    else
+    {
+        /* Aggressive turn: adjust diplomacy based on who was attacked. */
+        for (int i = 0; i < COUNTRY_COUNT; i++)
+        {
+            if (i == pi || playerList[i].dead || playerList[i].human)
+                continue;
+
+            float old = playerList[i].diplomacy[pi];
+
+            /* Check each target that was attacked. */
+            for (int t = 0; t < COUNTRY_COUNT; t++)
+            {
+                if (!(aPlayer->attackedTargets & (1 << t)))
+                    continue;
+
+                if (t == i)
+                {
+                    /* Attacked me — diplomacy drops to floor. */
+                    playerList[i].diplomacy[pi] = DIPLOMACY_ATTACKED_ME;
+                }
+                else
+                {
+                    playerList[i].diplomacy[pi] +=
+                        PredictThirdPartyShift(i, t, pi);
+                }
+            }
+
+            if (playerList[i].diplomacy[pi] != old)
+            {
+                GameLog("  Diplomacy attack: %s→%s %.3f→%.3f\n",
+                        playerList[i].country->name, aPlayer->country->name,
+                        old, playerList[i].diplomacy[pi]);
+            }
+        }
+    }
+
+    /* Reset attacked targets for next turn. */
+    aPlayer->attackedTargets = 0;
+}
+
+
+void LogAllDiplomacy(const char *label)
+{
+    GameLog("--- %s ---\n", label);
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (playerList[i].dead)
+            continue;
+        LogPlayerDiplomacy(&playerList[i]);
+    }
+}
+
+
+void LogPlayerDiplomacy(Player *aPlayer)
+{
+    int pi = aPlayer - playerList;
+    GameLog("  %s:", aPlayer->country->name);
+    for (int j = 0; j < COUNTRY_COUNT; j++)
+    {
+        if (j != pi && !playerList[j].dead)
+            GameLog(" %s=%+.3f", playerList[j].country->name,
+                    aPlayer->diplomacy[j]);
+    }
+    GameLog("\n");
+}
+
+
+int MaxSoldiers()
+{
+    int max = 1;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead && playerList[i].soldierCount > max)
+            max = playerList[i].soldierCount;
+    }
+    return max;
+}
+
+
+float MilitaryWeakness(int soldierCount)
+{
+    return 1.0f - (static_cast<float>(soldierCount)
+                   / static_cast<float>(MaxSoldiers()));
+}
+
+
+float PredictThirdPartyShift(int observerIdx, int targetIdx, int attackerIdx)
+{
+    float k = playerList[observerIdx].diplomacy[targetIdx];
+    float scale = DIPLOMACY_THIRD_PARTY_SCALE;
+    if (k > 0.0f)
+    {
+        float targetWeakness = MilitaryWeakness(playerList[targetIdx].soldierCount);
+        float attackerStrength = 1.0f - MilitaryWeakness(playerList[attackerIdx].soldierCount);
+        scale *= (1.0f + targetWeakness * attackerStrength
+                         * DIPLOMACY_WEAKNESS_SCALE);
+    }
+    return -k * scale;
+}
+
+
+float DiplomacyAttackWeight(float diplomacy, int targetSoldierCount)
+{
+    float w = 1.0f - diplomacy;
+    if (w < 0.01f) w = 0.01f;
+    if (diplomacy < 0.0f)
+        w *= (1.0f + MilitaryWeakness(targetSoldierCount) * DIPLOMACY_WEAKNESS_SCALE);
+    return w;
+}
+
+
+int ComputeRetaliationReserve(Player *aPlayer)
+{
+    int pi = aPlayer - playerList;
+    float netThreat = 0.0f;
+
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == pi || playerList[i].dead)
+            continue;
+
+        /* Theory of mind: read the other player's diplomacy toward us.
+         * Enemies (negative diplomacy) add threat proportional to their
+         * soldiers and hostility.  Allies (positive diplomacy) reduce
+         * the perceived threat — their presence makes us safer. */
+        float theirDiplomacy = playerList[i].diplomacy[pi];
+        float soldiers = static_cast<float>(playerList[i].soldierCount);
+        netThreat -= theirDiplomacy * soldiers;
+    }
+
+    if (netThreat < 0.0f) netThreat = 0.0f;
+    int reserve = static_cast<int>(netThreat * DIPLOMACY_RESERVE_SCALE);
+    GameLog("  Retaliation reserve: %d soldiers (net threat: %.0f)\n",
+            reserve, netThreat);
+    return reserve;
+}
+
+
+float ComputePlayerPower(Player *aPlayer)
+{
+    float power = static_cast<float>(aPlayer->soldierCount)
+                  + static_cast<float>(aPlayer->land) / 50.0f
+                  + static_cast<float>(aPlayer->treasury) / 500.0f
+                  + static_cast<float>(aPlayer->merchantCount) / 5.0f
+                  + static_cast<float>(aPlayer->nobleCount) * 2.0f
+                  + static_cast<float>(aPlayer->marketplaceCount)
+                  + static_cast<float>(aPlayer->foundryCount) * 2.0f
+                  + static_cast<float>(aPlayer->shipyardCount) * 3.0f
+                  + static_cast<float>(aPlayer->grain) / 1000.0f;
+    if (power < 1.0f) power = 1.0f;
+    return power;
+}
+
+
+int ComputeDesiredTroopStrength(Player *aPlayer)
+{
+    int reserve = ComputeRetaliationReserve(aPlayer);
+
+    /* Estimate troops needed for attacks.  Look at potential targets
+     * and estimate how many soldiers we'd want to send.  Use the
+     * weakest enemy (lowest diplomacy) as the likely target. */
+    int pi = aPlayer - playerList;
+    int attackTroops = 0;
+    float worstDiplomacy = 0.0f;
+    int worstTargetSoldiers = 0;
+
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == pi || playerList[i].dead)
+            continue;
+        if (aPlayer->diplomacy[i] < worstDiplomacy)
+        {
+            worstDiplomacy = aPlayer->diplomacy[i];
+            worstTargetSoldiers = playerList[i].soldierCount;
+        }
+    }
+
+    /* If we have an enemy, plan to send ~1.5x their soldiers. */
+    if (worstDiplomacy < 0.0f)
+        attackTroops = worstTargetSoldiers * 3 / 2;
+
+    aPlayer->desiredTroops = reserve + attackTroops;
+    GameLog("  Desired troops: %d (reserve=%d, attack=%d, current=%d)\n",
+            aPlayer->desiredTroops, reserve, attackTroops,
+            aPlayer->soldierCount);
+    return aPlayer->desiredTroops;
+}
+
+
+float SimulateAttackOutcome(Player *attacker, int targetIdx)
+{
+    int ai = attacker - playerList;
+    float allyScore = 0.0f;
+    float retaliationRisk = 0.0f;
+
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == ai || i == targetIdx || playerList[i].dead)
+            continue;
+
+        float predictedShift = PredictThirdPartyShift(i, targetIdx, ai);
+        float predictedDiplomacy = playerList[i].diplomacy[ai] + predictedShift;
+
+        if (predictedDiplomacy >= 0.0f)
+            allyScore += predictedDiplomacy;
+        else
+            retaliationRisk += -predictedDiplomacy
+                               * static_cast<float>(playerList[i].soldierCount);
+    }
+
+    /* The target itself will set diplomacy to DIPLOMACY_ATTACKED_ME toward us. */
+    retaliationRisk += -DIPLOMACY_ATTACKED_ME
+                       * static_cast<float>(playerList[targetIdx].soldierCount);
+
+    /* Normalize retaliation risk to a comparable scale with ally scores.
+     * Raw risk can be in the hundreds (soldiers * diplomacy), so scale down. */
+    float score = allyScore - retaliationRisk * 0.005f;
+
+    GameLog("    Simulate attack %s→%s: allies=%.2f retaliation=%.1f score=%.3f\n",
+            attacker->country->name, playerList[targetIdx].country->name,
+            allyScore, retaliationRisk, score);
+
+    return score;
+}
+
+
+/*------------------------------------------------------------------------------
+ *
  * Grain phase.
  */
+
+int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax)
+{
+    /* Expected values for RandRange(n) = (n+1)/2. */
+    int expMerchantRand = 18 + 18;  /* RandRange(35) + RandRange(35) */
+    int expHarvestRand = 126;       /* RandRange(250) */
+    int expFoundryRand = 76 + 400;  /* RandRange(150) + 400 */
+
+    /* Marketplace revenue. */
+    int mktPerUnit = (12 * (aPlayer->merchantCount + expMerchantRand)
+                      / (salesTax + 1)) + 5;
+    int mktRev = static_cast<int>(
+        pow(aPlayer->marketplaceCount * mktPerUnit, 0.9));
+
+    /* Grain mill revenue. */
+    int millPerUnit = static_cast<int>(
+        5.8f * static_cast<float>(aPlayer->grainHarvest + expHarvestRand))
+        / (20 * incomeTax + 40 * salesTax + 150);
+    int millRev = static_cast<int>(
+        pow(aPlayer->grainMillCount * millPerUnit, 0.9));
+
+    /* Foundry revenue (tax-independent). */
+    int fndRev = static_cast<int>(
+        pow(aPlayer->foundryCount * expFoundryRand, 0.9));
+
+    /* Shipyard revenue (tax-independent, use avg weather = 3.5). */
+    int shipBase = 4 * aPlayer->merchantCount
+                   + 9 * aPlayer->marketplaceCount
+                   + 15 * aPlayer->foundryCount;
+    int shipRev = static_cast<int>(
+        pow(static_cast<int>(aPlayer->shipyardCount * shipBase * 3.5f), 0.9));
+
+    /* Army cost. */
+    int armyCost = 8 * aPlayer->soldierCount;
+
+    /* Sales tax revenue. */
+    int salesBase = static_cast<int>(1.8f * aPlayer->merchantCount)
+                    + 33 * mktRev + 17 * millRev
+                    + 50 * fndRev + 70 * shipRev;
+    int salesTaxRev = salesTax
+                      * (static_cast<int>(pow(salesBase, 0.85))
+                         + 5 * aPlayer->nobleCount + aPlayer->serfCount)
+                      / 100;
+
+    /* Income tax revenue. */
+    int incomeBase = static_cast<int>(1.3f * aPlayer->serfCount)
+                     + 145 * aPlayer->nobleCount
+                     + 39 * aPlayer->merchantCount
+                     + 99 * aPlayer->marketplaceCount
+                     + 99 * aPlayer->grainMillCount
+                     + 425 * aPlayer->foundryCount
+                     + 965 * aPlayer->shipyardCount;
+    int incomeTaxRev = static_cast<int>(
+        pow(incomeTax * incomeBase / 100, 0.97));
+
+    return mktRev + millRev + fndRev + shipRev
+           + salesTaxRev + incomeTaxRev - armyCost;
+}
+
+
+void OptimizeTaxRates(Player *aPlayer)
+{
+    int bestSales = aPlayer->salesTax;
+    int bestIncome = aPlayer->incomeTax;
+    int bestRevenue = ComputeExpectedRevenue(aPlayer, bestSales, bestIncome);
+
+    for (int s = 0; s <= 20; s++)
+    {
+        for (int i = 0; i <= 35; i++)
+        {
+            int rev = ComputeExpectedRevenue(aPlayer, s, i);
+            if (rev > bestRevenue)
+            {
+                bestRevenue = rev;
+                bestSales = s;
+                bestIncome = i;
+            }
+        }
+    }
+
+    GameLog("  Optimal taxes: sales=%d%% income=%d%% (expected revenue=%d)\n",
+            bestSales, bestIncome, bestRevenue);
+    aPlayer->salesTax = bestSales;
+    aPlayer->incomeTax = bestIncome;
+}
+
 
 void ComputeGrainPhase(Player *aPlayer)
 {

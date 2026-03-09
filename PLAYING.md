@@ -60,7 +60,7 @@ You can attack barbarian lands (unclaimed territory) or rival countries. You cho
 - If you capture more than a third of the enemy's land, your army sacks their country, destroying buildings, grain, and killing serfs and nobles.
 - If you wipe out all their forces, you overrun them entirely and absorb their serfs. Their country is destroyed.
 
-You can't attack other countries until year 3 (international treaty). The number of attacks per year is limited by your noble count.
+You can't attack other countries during the treaty period (varies by difficulty level). The number of attacks per year is limited by your noble count.
 
 ### How You Can Die
 
@@ -91,7 +91,7 @@ Resist the urge to raise taxes too high. Sales tax directly reduces marketplace 
 
 **Overfeed your people.** Feed them at least 1.5x their requirement. This triggers immigration, which brings new serfs, merchants, and nobles. Immigration is the only way to grow your noble count without building palaces, and nobles are the bottleneck for your military.
 
-Don't build soldiers yet. You can't be attacked until year 3, and your starting 20 soldiers are enough for early defense.
+Don't build soldiers yet. You can't be attacked during the treaty period, and your starting 20 soldiers are enough for early defense. But don't turtle for too long — CPU players grow envious of powerful neighbors and will eventually gang up on you regardless of how peaceful you've been.
 
 ### Mid Game (Years 5-12): Expand Your Military
 
@@ -103,9 +103,11 @@ Once your marketplace revenue is generating a healthy treasury, start building:
 
 Attack **barbarian lands** first. They have no organized army structure, the land you capture is free, and there's no diplomatic consequence. Barbarian territory is a safe way to grow your land holdings, which increases your farming capacity.
 
+**Be aware of diplomacy.** CPU players track how they feel about every other country. Attacking someone's ally will make that CPU hostile toward you, while attacking someone's enemy will make them friendlier. Choose your targets wisely — you can create useful alliances by attacking countries that multiple CPUs already dislike.
+
 ### Late Game (Years 12+): Conquer Rivals
 
-Target the weakest CPU player first. Check the summary screen (sorted by land) to identify them. Send enough soldiers to overwhelm their defenses — you want at least a 1.5:1 advantage.
+Target the weakest CPU player first. Check the summary screen (sorted by power score) to identify them. Send enough soldiers to overwhelm their defenses — you want at least a 1.5:1 advantage.
 
 When you overrun a country, you absorb their serfs, which boosts your population and farming capacity. Their buildings are destroyed in the victory riot, but the land and people are yours.
 
@@ -121,6 +123,8 @@ Keep building soldiers between wars. Don't leave yourself vulnerable while your 
 - **Sell surplus grain.** If your reserves are much larger than your needs, list grain on the market. Other countries will buy it and the revenue goes straight to your treasury.
 - **Don't sell land unless desperate.** At 2 per acre, land is cheap. You need it for farming. Only sell in an emergency.
 - **Shipyards are endgame.** They're expensive and their revenue depends on having lots of merchants, marketplaces, and foundries already. Don't build them early.
+- **Don't turtle too long.** Staying peaceful builds goodwill, but growing too powerful triggers envy. CPU players will eventually unite against you if your power score far exceeds theirs. Use your strength before the window closes.
+- **Pick enemies strategically.** Attacking a country that others already dislike earns you friends. Attacking a popular country turns everyone against you.
 
 ---
 
@@ -204,12 +208,32 @@ Revenue is computed once per year at the start of your investment phase. Each in
 
 Higher tax rates don't always mean more revenue. Sales tax and income tax both appear in the denominators of marketplace and grain mill revenue formulas. Raising them increases tax income but reduces investment income. The optimal balance is moderate rates that capture some tax without crushing your investments.
 
+### Diplomacy
+
+CPU players track a **diplomacy score** toward every other player, ranging from deeply negative (hostile) to positive (friendly). These scores drive who they attack, how they invest, and how many troops they hold in reserve.
+
+**How diplomacy changes:**
+- **Peace**: Each turn you don't attack, all CPUs increase diplomacy toward you by a small amount. Over many turns, this builds up to moderate goodwill (~0.5).
+- **Direct attack**: If you attack a CPU, their diplomacy toward you drops to -1.0 (maximum hostility).
+- **Third-party effects**: If you attack a country that a CPU dislikes, that CPU likes you more. If you attack someone they like, they like you less — especially if the target is militarily weak.
+- **Decay**: All scores drift toward zero over time. Old grudges fade; old friendships erode.
+- **Treaty period**: Peace bonuses don't accumulate during the treaty period — peace is mandatory, so it earns no goodwill.
+
+**How diplomacy affects CPU behavior:**
+- **Target selection**: CPUs are most likely to attack the player with the lowest score. Positive scores make you an unlikely target; negative scores paint a bullseye.
+- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows quadratically with power disparity, so extreme turtling becomes untenable.
+- **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards).
+- **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies.
+- **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be.
+
 ### CPU Opponents
 
 CPU players use the same economic rules as you. They buy and sell grain, set taxes, build investments, recruit soldiers, and attack. At higher difficulty levels they make smarter decisions:
 
-- **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases.
-- **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error, only attacks weaker players.
-- **Level 5 (Machiavelli)**: Near-optimal tax rates, efficient investment, targets human players when strong enough, exploits arbitrage on the grain market, and overfeeds their army at 150% for maximum combat efficiency.
+- **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases. Picks targets nearly at random, ignoring diplomacy scores. Never adjusts tax rates from defaults.
+- **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error. Scores moderately influence target selection. Slowly adapts tax rates toward optimal.
+- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds army at 150%, and uses full theory-of-mind simulation to choose diplomatically optimal attack targets.
+
+CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
 
 All difficulty levels use identical economic formulas. The only difference is decision quality, not rules.

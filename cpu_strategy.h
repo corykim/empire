@@ -52,10 +52,31 @@ public:
                               int livingCount) = 0;
     virtual int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) = 0;
     virtual void manageInvestments(Player *aPlayer) = 0;
-    virtual void manageTaxes(Player *aPlayer) = 0;
+    virtual void manageTaxes(Player *aPlayer);
 
     /* Grain/land trading — default uses errorPct, overridable. */
     virtual void manageGrainTrade(Player *aPlayer);
+
+    /*
+     * Unified attack decision and target selection, driven by diplomacy.
+     *
+     * For each eligible candidate, computes a weight from diplomacy:
+     *   weight = max(0.01, 1 - diplomacy)
+     * The strongest weight scales the strategy's base aggression to
+     * determine the overall probability of attacking at all:
+     *   effectiveChance = aggression * maxWeight (capped at 95%)
+     * If the roll says attack, a weighted random pick selects the target.
+     *
+     * Returns a playerList index, TARGET_BARBARIANS, or TARGET_NONE.
+     *
+     *   aPlayer          Attacking CPU player.
+     *   livingIndices    Array of living player indices.
+     *   livingCount      Number of living players.
+     *   requireOdds      Minimum soldier ratio required (e.g. 1.5 = 3:2 odds).
+     *                    Set to 0 to skip the soldier check.
+     */
+    int selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
+                              int livingCount, float requireOdds);
 
 protected:
     /* Shared helpers available to all derived classes. */
@@ -80,7 +101,6 @@ public:
                       int livingCount) override;
     int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) override;
     void manageInvestments(Player *aPlayer) override;
-    void manageTaxes(Player *aPlayer) override;
 };
 
 
@@ -100,7 +120,6 @@ public:
                       int livingCount) override;
     int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) override;
     void manageInvestments(Player *aPlayer) override;
-    void manageTaxes(Player *aPlayer) override;
 };
 
 
@@ -120,7 +139,6 @@ public:
                       int livingCount) override;
     int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) override;
     void manageInvestments(Player *aPlayer) override;
-    void manageTaxes(Player *aPlayer) override;
 };
 
 
@@ -140,7 +158,6 @@ public:
                       int livingCount) override;
     int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) override;
     void manageInvestments(Player *aPlayer) override;
-    void manageTaxes(Player *aPlayer) override;
 };
 
 
@@ -160,7 +177,6 @@ public:
                       int livingCount) override;
     int  chooseSoldiersToSend(Player *aPlayer, Player *aTarget) override;
     void manageInvestments(Player *aPlayer) override;
-    void manageTaxes(Player *aPlayer) override;
     void manageGrainTrade(Player *aPlayer) override;
 };
 
