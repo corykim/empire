@@ -7,11 +7,12 @@ TRS-80 Empire game — a medieval strategy game using ncurses. Migrated from C t
 ## Build
 
 ```
-make          # builds ./empire
+make          # builds ./empire (Unix/macOS)
 rm -f empire && make   # force rebuild (header changes need this)
+cmake -B build && cmake --build build   # cross-platform (also works on Windows with PDCurses)
 ```
 
-Requires: `g++` (C++17), `ncurses`, `libm`.
+Requires: `g++` or any C++17 compiler, `ncurses` (Unix/macOS) or `PDCurses` (Windows), `libm`.
 
 ## Architecture
 
@@ -19,6 +20,7 @@ Requires: `g++` (C++17), `ncurses`, `libm`.
 
 | File | Purpose |
 |------|---------|
+| `platform.h` | Cross-platform header: ncurses/PDCurses selection, `SleepUs()` replacing `usleep()` |
 | `empire.h` | All shared types (Country, Player, Battle), globals, macros, prototypes |
 | `economy.h` / `economy.cpp` | Centralized economic rules: grain, population, revenue, purchases, trading, diplomacy, tax optimization, military planning. Single source of truth for investment costs and tuning constants. |
 | `cpu_strategy.h` | CPUStrategy abstract base class + 5 derived classes. Each has `errorPct` for decision quality. |

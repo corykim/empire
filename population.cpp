@@ -13,8 +13,7 @@
 
 /* System includes. */
 #include <math.h>
-#include <ncurses.h>
-#include <unistd.h>
+#include "platform.h"
 
 /* Local includes. */
 #include "empire.h"

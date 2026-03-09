@@ -13,10 +13,9 @@
 
 /* System includes. */
 #include <math.h>
-#include <ncurses.h>
+#include "platform.h"
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 /* Local includes. */
 #include "empire.h"
@@ -503,7 +502,7 @@ static void DisplayCPUBattleResults(Battle *aBattle)
     {
         refresh();
         if (!fastMode)
-            usleep(2 * DELAY_TIME);
+            SleepUs(2 * DELAY_TIME);
     }
 
     /* Update battle information. */
@@ -626,7 +625,7 @@ static void RunBattle(Battle *aBattle)
             roundDelayUs = static_cast<int>(37500.0 * sqrt(static_cast<double>(smaller)));
         }
         if (!fastMode)
-            usleep(roundDelayUs);
+            SleepUs(roundDelayUs);
 
         /*
          * Determine how many soldiers were killed in this round, who won the

@@ -14,13 +14,12 @@
 /* System includes. */
 #include <ctype.h>
 #include <math.h>
-#include <ncurses.h>
+#include "platform.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 /* Local includes. */
 #include "empire.h"
@@ -500,7 +499,7 @@ void ShowMessage(const char *fmt, ...)
         delayUs = words * 200000;
         if (delayUs < DELAY_TIME)
             delayUs = DELAY_TIME;
-        usleep(delayUs);
+        SleepUs(delayUs);
     }
 }
 
@@ -529,7 +528,7 @@ static void StartScreen()
 
     /* Delay. */
     if (!fastMode)
-        usleep(DELAY_TIME);
+        SleepUs(DELAY_TIME);
 }
 
 
