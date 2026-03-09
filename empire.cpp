@@ -166,7 +166,8 @@ int barbarianLand = 6000;
 int gameOver = false;
 int difficulty = 2;
 int treatyYears = 3;
-int marketGrainHistory[3] = {0, 0, 0};
+/* Seeded with estimated year-1 market: ~5 CPUs listing ~10k each. */
+int marketGrainHistory[3] = {50000, 50000, 50000};
 bool omniscient = false;
 bool fastMode = false;
 
@@ -248,6 +249,9 @@ int main(int argc, char *argv[])
             /* Skip dead players. */
             if (player->dead)
                 continue;
+
+            /* Record soldier count for weakness detection next turn. */
+            player->soldiersPrevTurn = player->soldierCount;
 
             /* Decay diplomacy scores toward zero at the start of each turn. */
             DecayDiplomacy(player);
@@ -613,6 +617,8 @@ static void GameSetupScreen()
         player->grainForSale = 0;
         player->grainPrice = 0.0;
         player->attackedTargets = 0;
+        player->soldiersPrevTurn = 0;
+        player->yearsSinceImmigration = 0;
         for (int j = 0; j < COUNTRY_COUNT; j++)
             player->landTakenFrom[j] = 0;
 
@@ -986,8 +992,18 @@ static void CPUGrainPhase(Player *aPlayer)
         overfeedPct = 100;
     int desiredFeed = aPlayer->peopleGrainNeed * overfeedPct / 100;
 
-    /* Clamp overfeed to preserve safe reserve. */
+    /* Clamp overfeed to preserve safe reserve — unless no immigration
+     * for 3+ years, in which case dip into reserve to attract immigrants. */
     int maxFeed = aPlayer->grain - safeReserve;
+    if (aPlayer->yearsSinceImmigration >= 3 && aPlayer->grain > desiredFeed)
+    {
+        /* Desperate for immigration: feed the full overfeed even if it
+         * dips into the safe reserve. Still keep at least 50% of reserve. */
+        int desperateMax = aPlayer->grain - safeReserve / 2;
+        if (desperateMax > maxFeed) maxFeed = desperateMax;
+        GameLog("  Immigration drought (%d years) — dipping into reserve\n",
+                aPlayer->yearsSinceImmigration);
+    }
     if (maxFeed < aPlayer->peopleGrainNeed)
         maxFeed = aPlayer->peopleGrainNeed;  /* Always feed at least 100% */
     if (desiredFeed > maxFeed)
@@ -1016,6 +1032,13 @@ static void CPUPopulationPhase(Player *aPlayer)
 {
     PopulationResult result = ComputePopulation(aPlayer);
     ApplyPopulationChanges(aPlayer, result);
+
+    /* Track immigration for overfeeding decisions. */
+    if (result.immigrated > 0)
+        aPlayer->yearsSinceImmigration = 0;
+    else
+        aPlayer->yearsSinceImmigration++;
+
     DeathCause cause = CheckPlayerDeath(aPlayer);
 
     /* Notify the human player when a CPU ruler dies. */

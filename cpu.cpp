@@ -17,7 +17,6 @@
 
 
 /* CPU behavior constants (used only in this file). */
-constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
 constexpr int   CPU_LAND_SURPLUS_MULT    = 8;      /* Only sell land if land > pop * this */
 constexpr int   CPU_ACRES_PER_GRAIN_MILL = 2000;   /* Farmland acres per grain mill needed */
 constexpr float CPU_GRAIN_SCARCITY_MAX   = 2.0f;   /* Max grain price multiplier when scarce */
@@ -89,27 +88,32 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
         int idx = livingIndices[i];
         Player *candidate = &playerList[idx];
 
-        /* Diplomacy weight with military caution applied. */
+        /* Diplomacy weight with military caution. */
         float diplomacyW = DiplomacyAttackWeight(aPlayer->diplomacy[idx],
                                                  candidate->soldierCount);
+
+        /* Military caution: consider alliance strength, not just own troops.
+         * If our side (us + allies) outnumbers the target, reduce caution. */
+        int alliedTroops = ComputeAlliedStrength(aPlayer, idx);
+        int totalFriendly = aPlayer->soldierCount + alliedTroops;
         if (requireOdds > 0.0f && candidate->soldierCount > 0)
         {
-            float oddsRatio = static_cast<float>(aPlayer->soldierCount)
+            float oddsRatio = static_cast<float>(totalFriendly)
                               / static_cast<float>(candidate->soldierCount);
             if (oddsRatio < requireOdds)
                 diplomacyW *= oddsRatio / requireOdds;
         }
 
-        /* Envy: powerful targets are attractive regardless of diplomacy
-         * or military caution.  Cubic growth ensures envy overwhelms
-         * everything at high power disparity — CPUs will send suicide
-         * raids to weaken a dominant player. */
+        /* Envy: powerful targets are attractive. */
         float targetPower = ComputePlayerPower(candidate);
         float envyRatio = (targetPower / attackerPower) - 1.0f;
         if (envyRatio < 0.0f) envyRatio = 0.0f;
         float envyW = envyRatio * envyRatio * envyRatio * DIPLOMACY_ENVY_SCALE;
 
-        float w = diplomacyW + envyW;
+        /* Vulnerability: wounded or defenseless targets are high priority. */
+        float vulnW = ComputeVulnerability(idx);
+
+        float w = diplomacyW + envyW + vulnW;
 
         /* Theory of mind: simulate diplomatic consequences of this attack. */
         float simScore = SimulateAttackOutcome(aPlayer, idx);
@@ -127,13 +131,15 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
         eligibleCount++;
     }
 
-    /* Add barbarians as a weighted candidate based on troop strength.
-     * Stronger armies are more likely to expand into barbarian lands. */
+    /* Add barbarians as a weighted candidate.  Prioritize in early years
+     * when barbarian land is free growth with no diplomatic consequences. */
     float barbarianWeight = 0.0f;
     if (barbarianLand > 0)
     {
         float strength = 1.0f - MilitaryWeakness(aPlayer->soldierCount);
-        barbarianWeight = strength;
+        /* Boost barbarian priority in early years (years 1-5). */
+        float earlyBoost = (year <= 5) ? 2.0f : 1.0f;
+        barbarianWeight = strength * earlyBoost;
         totalWeight += barbarianWeight;
         if (barbarianWeight > maxWeight) maxWeight = barbarianWeight;
     }
@@ -292,7 +298,25 @@ float CPUStrategy::ComputeGrainTargetPrice(Player *aPlayer, int effError)
         }
     }
 
-    float price = GRAIN_PRICE_BASE * scarcityMult * trendMult * harvestMult;
+    float fundamentalPrice = GRAIN_PRICE_BASE * scarcityMult * trendMult * harvestMult;
+
+    /* Blend with current market average for convergence.  CPUs anchor
+     * 50% to fundamentals and 50% to what others are charging. */
+    float marketAvg = 0.0f;
+    int marketSellers = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead && playerList[i].grainForSale > 0)
+        {
+            marketAvg += playerList[i].grainPrice;
+            marketSellers++;
+        }
+    }
+    float price;
+    if (marketSellers > 0)
+        price = (fundamentalPrice + marketAvg / marketSellers) / 2.0f;
+    else
+        price = fundamentalPrice;
 
     /* Random noise: ±5-15% based on difficulty (L5 ≈ ±5%, L1 ≈ ±15%). */
     int noisePct = 5 + effError / 5;
@@ -383,6 +407,7 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     int reserve = ComputeSafeGrainReserve(aPlayer);
     reserve = reserve * deviate(110, 160, effError) / 100;
     if (reserve < overfeedNeed) reserve = overfeedNeed;
+    bool listedNewGrain = false;
     int surplus = aPlayer->grain - reserve;
     if (surplus > 500)
     {
@@ -391,17 +416,20 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
         {
             float price = ComputeGrainTargetPrice(aPlayer, effError);
             ListGrainForSale(aPlayer, sellAmount, price);
+            listedNewGrain = true;
         }
     }
 
     /*
-     * REPRICE existing grain listing based on market trends.
+     * REPRICE existing grain listing based on market trends — but only if
+     * we didn't just list new grain (which would skew the calculation).
+     * Use a ±15% threshold to avoid constant micro-adjustments.
      */
-    if (aPlayer->grainForSale > 0)
+    if (!listedNewGrain && aPlayer->grainForSale > 0)
     {
         float targetPrice = ComputeGrainTargetPrice(aPlayer, effError);
-        if (targetPrice > aPlayer->grainPrice * 1.05f ||
-            targetPrice < aPlayer->grainPrice * 0.95f)
+        if (targetPrice > aPlayer->grainPrice * 1.15f ||
+            targetPrice < aPlayer->grainPrice * 0.85f)
         {
             aPlayer->grainPrice = targetPrice;
             GameLog("  Repriced grain to %.4f\n", targetPrice);
@@ -788,6 +816,15 @@ int RoyalAdvisor::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
 {
     int count = (aPlayer->soldierCount * 5 / 10)
                 + RandRange(aPlayer->soldierCount * 25 / 100);
+
+    /* Go all-in against vulnerable targets. */
+    if (aTarget != nullptr)
+    {
+        float vuln = ComputeVulnerability(aTarget - playerList);
+        if (vuln >= 2.0f)
+            count = aPlayer->soldierCount * 3 / 4;
+    }
+
     if (count > (aPlayer->soldierCount * 3 / 4))
         count = aPlayer->soldierCount * 3 / 4;
     if (count < CPU_MIN_ATTACK_FORCE) return 0;
@@ -825,11 +862,24 @@ int Machiavelli::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
 
     if (aTarget != nullptr)
     {
+        int targetIdx = aTarget - playerList;
+        float vuln = ComputeVulnerability(targetIdx);
+        int alliedTroops = ComputeAlliedStrength(aPlayer, targetIdx);
+
         int targetStrength = aTarget->soldierCount;
         if (targetStrength <= 0)
             targetStrength = aTarget->serfCount / 3;
-        count = (targetStrength * 12 / 10)
-                + RandRange(targetStrength / 5);
+
+        /* Base: 120% of target strength. */
+        count = (targetStrength * 12 / 10) + RandRange(targetStrength / 5);
+
+        /* Go all-in against vulnerable targets (0 soldiers, recently wounded). */
+        if (vuln >= 2.0f)
+            count = aPlayer->soldierCount * 3 / 4;
+        /* Commit more when backed by allies. */
+        else if (alliedTroops > targetStrength)
+            count = MIN(count * 3 / 2, aPlayer->soldierCount * 3 / 4);
+
         if (count > (aPlayer->soldierCount * 3 / 4))
             count = aPlayer->soldierCount * 3 / 4;
     }

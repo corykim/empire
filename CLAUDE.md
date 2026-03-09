@@ -98,6 +98,8 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - `ComputeRetaliationReserve(player)` — net threat from scores × soldiers, reduced by allies
 - `ComputeDesiredTroopStrength(player)` — reserve + 1.5× worst enemy's soldiers
 - `SimulateAttackOutcome(attacker, targetIdx)` — predicts diplomatic fallout and retaliation risk
+- `ComputeAlliedStrength(attacker, targetIdx)` — total soldiers of players allied against target
+- `ComputeVulnerability(targetIdx)` — scores recent losses, zero soldiers, low absolute count
 - `ComputeExpectedRevenue(player, salesTax, incomeTax)` — deterministic revenue prediction
 - `OptimizeTaxRates(player)` — brute-force 756 combinations for optimal sales/income rates
 - `LogAllDiplomacy(label)`, `LogPlayerDiplomacy(player)` — structured logging

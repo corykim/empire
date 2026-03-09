@@ -566,10 +566,15 @@ static void FeedCountry(Player *aPlayer)
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->peopleGrainNeed;
-        else if (strcmp(input, "++") == 0)
-            grainToFeed = aPlayer->peopleGrainNeed * 2;
         else if (input[0] == '+')
-            grainToFeed = (aPlayer->peopleGrainNeed * 3 + 1) / 2;
+        {
+            /* Count '+' characters: each adds 50% of need. */
+            int plusCount = 0;
+            for (int c = 0; input[c] == '+'; c++)
+                plusCount++;
+            /* (need * (100 + 50*plusCount) + 99) / 100, rounded up. */
+            grainToFeed = (aPlayer->peopleGrainNeed * (100 + 50 * plusCount) + 99) / 100;
+        }
         else
             grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)

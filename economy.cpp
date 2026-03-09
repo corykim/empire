@@ -155,6 +155,19 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                 {
                     playerList[i].diplomacy[pi] +=
                         PredictThirdPartyShift(i, t, pi);
+
+                    /* Pile-on effect: when an ally attacks someone we
+                     * dislike, our hostility toward the target increases.
+                     * This encourages coordinated attacks. */
+                    if (playerList[i].diplomacy[pi] > 0.0f &&
+                        playerList[i].diplomacy[t] < 0.0f)
+                    {
+                        /* Ally attacked my enemy → I become more hostile
+                         * toward that enemy too (solidarity). */
+                        playerList[i].diplomacy[t] -= 0.1f;
+                        playerList[i].diplomacy[t] = ClampDiplomacy(
+                            playerList[i].diplomacy[t]);
+                    }
                 }
             }
 
@@ -232,6 +245,14 @@ float PredictThirdPartyShift(int observerIdx, int targetIdx, int attackerIdx)
         scale *= (1.0f + targetWeakness * attackerStrength
                          * DIPLOMACY_WEAKNESS_SCALE);
     }
+
+    /* Betrayal penalty: if the attacker was allied with the target,
+     * observers view this much more negatively.  Attacking a friend
+     * is worse than attacking an enemy. */
+    float attackerDiplomacyToTarget = playerList[attackerIdx].diplomacy[targetIdx];
+    if (attackerDiplomacyToTarget > 0.0f)
+        scale *= (1.0f + attackerDiplomacyToTarget);
+
     return -k * scale;
 }
 
@@ -480,6 +501,54 @@ int ComputeSafeGrainReserve(Player *aPlayer)
     int reserve = static_cast<int>(grainNeededFromReserve / 0.70f);
     if (reserve < overfeedNeed) reserve = overfeedNeed;
     return reserve;
+}
+
+
+int ComputeAlliedStrength(Player *attacker, int targetIdx)
+{
+    int ai = attacker - playerList;
+    int alliedSoldiers = 0;
+
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == ai || i == targetIdx || playerList[i].dead)
+            continue;
+
+        /* Allied = dislikes the target AND likes the attacker. */
+        if (playerList[i].diplomacy[targetIdx] < 0.0f &&
+            playerList[i].diplomacy[ai] > 0.0f)
+        {
+            alliedSoldiers += playerList[i].soldierCount;
+        }
+    }
+    return alliedSoldiers;
+}
+
+
+float ComputeVulnerability(int targetIdx)
+{
+    Player *target = &playerList[targetIdx];
+    float vulnerability = 0.0f;
+
+    /* Low absolute soldiers relative to power = vulnerable. */
+    float power = ComputePlayerPower(target);
+    if (power > 0.0f && target->soldierCount < 20)
+        vulnerability += 1.0f;
+
+    /* Recently lost many soldiers = wounded. */
+    if (target->soldiersPrevTurn > 0)
+    {
+        float lossRatio = 1.0f - static_cast<float>(target->soldierCount)
+                                 / static_cast<float>(target->soldiersPrevTurn);
+        if (lossRatio > 0.3f)
+            vulnerability += lossRatio * 2.0f;
+    }
+
+    /* Zero soldiers = maximally vulnerable. */
+    if (target->soldierCount == 0)
+        vulnerability += 3.0f;
+
+    return vulnerability;
 }
 
 

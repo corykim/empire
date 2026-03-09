@@ -224,7 +224,10 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 - **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution — CPUs will send raids to weaken a dominant player regardless of the odds (but never fewer than 10 soldiers).
 - **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards).
 - **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies.
-- **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be.
+- **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be. Betraying an ally is viewed far more negatively by observers than attacking an enemy.
+- **Alliance coordination**: CPUs consider allied strength (not just their own) when evaluating odds. When an ally attacks a shared enemy, other CPUs become more hostile toward that enemy and are more likely to pile on.
+- **Vulnerability detection**: CPUs detect when a player has recently lost soldiers or has zero defenders, and prioritize attacking them with full force.
+- **Barbarian expansion**: CPUs prioritize conquering barbarian lands in the early game when it's free growth with no diplomatic consequences.
 
 ### CPU Opponents
 
@@ -232,7 +235,7 @@ CPU players use the same economic rules as you. They buy and sell grain, set tax
 
 - **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases. Picks targets nearly at random, ignoring diplomacy scores. Never adjusts tax rates from defaults.
 - **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error. Scores moderately influence target selection. Slowly adapts tax rates toward optimal.
-- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds army at 150%, and uses full theory-of-mind simulation to choose diplomatically optimal attack targets.
+- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds army at 150%, uses full theory-of-mind simulation, coordinates with allies, and goes all-in against vulnerable targets.
 
 CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
 

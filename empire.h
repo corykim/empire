@@ -152,6 +152,8 @@ struct Player
     int                     attackedTargets;
     int                     landTakenFrom[COUNTRY_COUNT];
     int                     desiredTroops;
+    int                     soldiersPrevTurn;
+    int                     yearsSinceImmigration;
     float                   cpuDifficulty;
     int                     strategyIndex;
     float                   diplomacy[COUNTRY_COUNT];

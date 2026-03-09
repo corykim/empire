@@ -45,7 +45,7 @@ static void Sack(Player *aTargetPlayer);
 
 static void DrawAttackScreen(Player *aPlayer);
 
-static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve);
+static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve);
 
 
 static void InitBattle(Battle *aBattle, Player *aPlayer);
@@ -196,8 +196,10 @@ void CPUAttackScreen(Player *aPlayer)
         GameLog("  Attack #%d target: %s\n", aPlayer->attackCount + 1,
                 targetPlayer ? targetPlayer->country->name : "Barbarians");
 
-        /* Attack, holding reserve soldiers back. */
-        CPUAttack(aPlayer, targetPlayer, reserve);
+        /* Attack, holding reserve soldiers back.
+         * Break if attack couldn't proceed (e.g., not enough soldiers). */
+        if (!CPUAttack(aPlayer, targetPlayer, reserve))
+            break;
 
         /* Recompute reserve — diplomacy and soldier counts may have changed. */
         reserve = ComputeRetaliationReserve(aPlayer);
@@ -382,7 +384,7 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
  *   aTargetPlayer          Player to attack.
  */
 
-static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
+static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
 {
     Battle battle;
     int    soldiersToSend;
@@ -390,21 +392,22 @@ static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
 
     /* If attacking the barbarians, make sure they have land. */
     if ((aTargetPlayer == nullptr) && (barbarianLand == 0))
-        return;
+        return false;
 
     /* Set up the battle. */
     InitBattle(&battle, aPlayer);
 
-    /* Delegate troop commitment to the strategy, capped by reserve. */
+    /* Delegate troop commitment to the strategy, capped by reserve.
+     * Don't bother if available troops are below the minimum attack force. */
     available = aPlayer->soldierCount - reserve;
-    if (available <= 0)
-        return;
+    if (available < CPU_MIN_ATTACK_FORCE)
+        return false;
     soldiersToSend = cpuStrategies[aPlayer->strategyIndex]->chooseSoldiersToSend(
                          aPlayer, aTargetPlayer);
     if (soldiersToSend > available)
         soldiersToSend = available;
     if (soldiersToSend <= 0)
-        return;
+        return false;
     battle.soldiersToAttackCount = soldiersToSend;
     battle.soldierCount = soldiersToSend;
 
@@ -413,6 +416,7 @@ static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
     RunBattle(&battle);
     DisplayBattleResults(&battle, false);
     ApplyBattleResults(&battle, aPlayer, aTargetPlayer);
+    return true;
 }
 
 

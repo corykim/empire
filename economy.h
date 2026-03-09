@@ -157,9 +157,10 @@ constexpr int   SACK_THRESHOLD_DIV    = 3;      /* Sack if capture > 1/N of land
 
 /* CPU behavior tuning (shared across files). */
 constexpr int   CPU_OVERFEED_PCT         = 190;    /* CPU target people overfeed percentage */
+constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
 
 /* Diplomacy. */
-constexpr float DIPLOMACY_INIT_RANGE       = 0.25f;
+constexpr float DIPLOMACY_INIT_RANGE       = 0.05f;
 constexpr float DIPLOMACY_PEACE_BONUS      = 0.03f;
 constexpr float DIPLOMACY_ATTACKED_ME      = -1.0f;
 constexpr float DIPLOMACY_DECAY_RATE       = 0.10f;
@@ -344,6 +345,29 @@ int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax);
  */
 
 void OptimizeTaxRates(Player *aPlayer);
+
+
+/*
+ * Compute the total soldiers of players allied against a target.
+ * "Allied" means: has negative diplomacy toward the target AND
+ * positive diplomacy toward the attacker.
+ *
+ *   attacker               The attacking player.
+ *   targetIdx              Index of the target player.
+ */
+
+int ComputeAlliedStrength(Player *attacker, int targetIdx);
+
+
+/*
+ * Compute a vulnerability score for a target (0.0 = normal, 1.0+ = very
+ * vulnerable).  Based on recent soldier losses and low soldier count
+ * relative to land/power.
+ *
+ *   targetIdx              Index of the target player.
+ */
+
+float ComputeVulnerability(int targetIdx);
 
 
 /*
