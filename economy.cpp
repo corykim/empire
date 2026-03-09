@@ -103,7 +103,7 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
     {
         /* Peaceful turn: all CPUs increase diplomacy toward this player.
          * No peace bonus during treaty years — peace is mandatory. */
-        if (year >= treatyYears)
+        if (year > treatyYears)
         {
             for (int i = 0; i < COUNTRY_COUNT; i++)
             {
@@ -277,28 +277,34 @@ int ComputeDesiredTroopStrength(Player *aPlayer)
 {
     int reserve = ComputeRetaliationReserve(aPlayer);
 
-    /* Estimate troops needed for attacks.  Look at potential targets
-     * and estimate how many soldiers we'd want to send.  Use the
-     * weakest enemy (lowest diplomacy) as the likely target. */
+    /* Estimate troops needed for attacks.  Consider both enemies
+     * (negative diplomacy) and envy targets (powerful players). */
     int pi = aPlayer - playerList;
     int attackTroops = 0;
-    float worstDiplomacy = 0.0f;
-    int worstTargetSoldiers = 0;
+    float myPower = ComputePlayerPower(aPlayer);
 
     for (int i = 0; i < COUNTRY_COUNT; i++)
     {
         if (i == pi || playerList[i].dead)
             continue;
-        if (aPlayer->diplomacy[i] < worstDiplomacy)
-        {
-            worstDiplomacy = aPlayer->diplomacy[i];
-            worstTargetSoldiers = playerList[i].soldierCount;
-        }
-    }
 
-    /* If we have an enemy, plan to send ~1.5x their soldiers. */
-    if (worstDiplomacy < 0.0f)
-        attackTroops = worstTargetSoldiers * 3 / 2;
+        int needed = 0;
+        if (aPlayer->diplomacy[i] < 0.0f)
+        {
+            /* Enemy: plan to send 1.5x their soldiers. */
+            needed = playerList[i].soldierCount * 3 / 2;
+        }
+        else
+        {
+            /* Neutral/friendly but powerful: plan expeditionary force. */
+            float ratio = ComputePlayerPower(&playerList[i]) / myPower;
+            if (ratio > 1.5f)
+                needed = playerList[i].soldierCount / 2;
+        }
+
+        if (needed > attackTroops)
+            attackTroops = needed;
+    }
 
     aPlayer->desiredTroops = reserve + attackTroops;
     GameLog("  Desired troops: %d (reserve=%d, attack=%d, current=%d)\n",
@@ -441,7 +447,7 @@ void ComputeGrainPhase(Player *aPlayer)
     int usableLand;
 
     /* Rats eat grain. */
-    aPlayer->ratPct = RandRange(30);
+    aPlayer->ratPct = RandRange(MAX_RAT_PERCENT);
     aPlayer->grain -= (aPlayer->grain * aPlayer->ratPct) / 100;
 
     /* Usable land = total land minus space occupied by people and buildings. */
@@ -453,26 +459,26 @@ void ComputeGrainPhase(Player *aPlayer)
                  - (2 * aPlayer->soldierCount);
 
     /* Each bushel of grain can seed 3 acres. */
-    if (usableLand > (3 * aPlayer->grain))
-        usableLand = 3 * aPlayer->grain;
+    if (usableLand > (GRAIN_SEED_PER_ACRE * aPlayer->grain))
+        usableLand = GRAIN_SEED_PER_ACRE * aPlayer->grain;
 
     /* Each serf can farm 5 acres. */
-    if (usableLand > (5 * aPlayer->serfCount))
-        usableLand = 5 * aPlayer->serfCount;
+    if (usableLand > (ACRES_PER_SERF * aPlayer->serfCount))
+        usableLand = ACRES_PER_SERF * aPlayer->serfCount;
 
     /* Harvest. */
-    aPlayer->grainHarvest =   (weather * usableLand * 0.72)
-                            + RandRange(500)
-                            - (aPlayer->foundryCount * 500);
+    aPlayer->grainHarvest =   (weather * usableLand * GRAIN_YIELD_MULT)
+                            + RandRange(FOUNDRY_POLLUTION)
+                            - (aPlayer->foundryCount * FOUNDRY_POLLUTION);
     if (aPlayer->grainHarvest < 0)
         aPlayer->grainHarvest = 0;
     aPlayer->grain += aPlayer->grainHarvest;
 
     /* Grain needs. */
-    aPlayer->peopleGrainNeed = 5 * (  aPlayer->serfCount
+    aPlayer->peopleGrainNeed = GRAIN_PER_PERSON * (  aPlayer->serfCount
                                     + aPlayer->merchantCount
-                                    + (3 * aPlayer->nobleCount));
-    aPlayer->armyGrainNeed = 8 * aPlayer->soldierCount;
+                                    + (GRAIN_PER_NOBLE_MULT * aPlayer->nobleCount));
+    aPlayer->armyGrainNeed = GRAIN_PER_SOLDIER * aPlayer->soldierCount;
 
     GameLog("  Weather: %d/6  Rats ate %d%%\n", weather, aPlayer->ratPct);
     GameLog("  Usable land: %d  Harvest: %d  Grain: %d\n",
@@ -496,32 +502,32 @@ PopulationResult ComputePopulation(Player *aPlayer)
                      + aPlayer->nobleCount;
 
     /* Births. */
-    r.born = RandRange(static_cast<int>(static_cast<float>(population) / 9.5));
+    r.born = RandRange(static_cast<int>(static_cast<float>(population) / BIRTH_RATE_DIV));
 
     /* Disease deaths. */
-    r.diedDisease = RandRange(population / 22);
+    r.diedDisease = RandRange(population / DISEASE_DEATH_DIV);
 
     /* Starvation and malnutrition. */
     if (aPlayer->peopleGrainNeed > (2 * aPlayer->peopleGrainFeed))
     {
-        r.diedMalnutrition = RandRange(population / 12 + 1);
-        r.diedStarvation = RandRange(population / 16 + 1);
+        r.diedMalnutrition = RandRange(population / MALNUTRITION_DEATH_DIV_SEVERE + 1);
+        r.diedStarvation = RandRange(population / STARVATION_DEATH_DIV + 1);
     }
     else if (aPlayer->peopleGrainNeed > aPlayer->peopleGrainFeed)
     {
-        r.diedMalnutrition = RandRange(population / 15 + 1);
+        r.diedMalnutrition = RandRange(population / MALNUTRITION_DEATH_DIV + 1);
     }
     aPlayer->diedStarvation = r.diedStarvation;
 
     /* Immigration (requires feed > 1.5x need). */
     if (static_cast<float>(aPlayer->peopleGrainFeed) >
-        (1.5 * static_cast<float>(aPlayer->peopleGrainNeed)))
+        (IMMIGRATION_FEED_MULT * static_cast<float>(aPlayer->peopleGrainNeed)))
     {
         r.immigrated =
               static_cast<int>(sqrt(aPlayer->peopleGrainFeed
                                     - aPlayer->peopleGrainNeed))
             - RandRange(static_cast<int>(
-                  1.5 * static_cast<float>(aPlayer->customsTax)));
+                  IMMIGRATION_CUSTOMS_MULT * static_cast<float>(aPlayer->customsTax)));
         if (r.immigrated > 0)
             r.immigrated = RandRange(2 * r.immigrated + 1);
         else
@@ -530,10 +536,10 @@ PopulationResult ComputePopulation(Player *aPlayer)
     aPlayer->immigrated = r.immigrated;
 
     /* Merchant and noble immigration. */
-    if ((r.immigrated / 5) > 0)
-        r.merchantsImmigrated = RandRange(r.immigrated / 5);
-    if ((r.immigrated / 25) > 0)
-        r.noblesImmigrated = RandRange(r.immigrated / 25);
+    if ((r.immigrated / IMMIGRANT_MERCHANT_RATIO) > 0)
+        r.merchantsImmigrated = RandRange(r.immigrated / IMMIGRANT_MERCHANT_RATIO);
+    if ((r.immigrated / IMMIGRANT_NOBLE_RATIO) > 0)
+        r.noblesImmigrated = RandRange(r.immigrated / IMMIGRANT_NOBLE_RATIO);
 
     /* Army starvation and desertion. */
     if (aPlayer->armyGrainNeed > (2 * aPlayer->armyGrainFeed))
@@ -605,7 +611,7 @@ DeathCause CheckPlayerDeath(Player *aPlayer)
     }
 
     /* Random death — 0.25% chance per year (1 in 400). */
-    if (RandRange(400) == 1)
+    if (RandRange(RANDOM_DEATH_CHANCE) == 1)
     {
         aPlayer->dead = true;
         cause = DEATH_RANDOM;
@@ -639,38 +645,38 @@ void ComputeRevenues(Player *aPlayer)
 
     /* Marketplace revenue. */
     marketplaceRevenue =
-          (  12
-           * (aPlayer->merchantCount + RandRange(35) + RandRange(35))
+          (  MKT_REV_MULT
+           * (aPlayer->merchantCount + RandRange(MKT_REV_RAND) + RandRange(MKT_REV_RAND))
            / (aPlayer->salesTax + 1))
-        + 5;
+        + MKT_REV_ADD;
     marketplaceRevenue = aPlayer->marketplaceCount * marketplaceRevenue;
-    aPlayer->marketplaceRevenue = pow(marketplaceRevenue, 0.9);
+    aPlayer->marketplaceRevenue = pow(marketplaceRevenue, REV_EXP_INVESTMENT);
 
     /* Grain mill revenue. */
     grainMillRevenue =
-          static_cast<int>(5.8 * static_cast<float>(
-              aPlayer->grainHarvest + RandRange(250)))
-        / (20 * aPlayer->incomeTax + 40 * aPlayer->salesTax + 150);
+          static_cast<int>(MILL_REV_MULT * static_cast<float>(
+              aPlayer->grainHarvest + RandRange(MILL_REV_RAND)))
+        / (MILL_DIV_INCOME * aPlayer->incomeTax + MILL_DIV_SALES * aPlayer->salesTax + MILL_DIV_BASE);
     grainMillRevenue = aPlayer->grainMillCount * grainMillRevenue;
-    aPlayer->grainMillRevenue = pow(grainMillRevenue, 0.9);
+    aPlayer->grainMillRevenue = pow(grainMillRevenue, REV_EXP_INVESTMENT);
 
     /* Foundry revenue. */
-    foundryRevenue = aPlayer->soldierCount + RandRange(150) + 400;
+    foundryRevenue = aPlayer->soldierCount + RandRange(FOUNDRY_REV_RAND) + FOUNDRY_REV_BASE;
     foundryRevenue = aPlayer->foundryCount * foundryRevenue;
-    foundryRevenue = pow(foundryRevenue, 0.9);
+    foundryRevenue = pow(foundryRevenue, REV_EXP_INVESTMENT);
     aPlayer->foundryRevenue = foundryRevenue;
 
     /* Shipyard revenue. */
     shipyardRevenue =
-        (  4 * aPlayer->merchantCount
-         + 9 * aPlayer->marketplaceCount
-         + 15 * aPlayer->foundryCount);
+        (  SHIP_MULT_MERCHANT * aPlayer->merchantCount
+         + SHIP_MULT_MARKETPLACE * aPlayer->marketplaceCount
+         + SHIP_MULT_FOUNDRY * aPlayer->foundryCount);
     shipyardRevenue = aPlayer->shipyardCount * shipyardRevenue * weather;
-    shipyardRevenue = pow(shipyardRevenue, 0.9);
+    shipyardRevenue = pow(shipyardRevenue, REV_EXP_INVESTMENT);
     aPlayer->shipyardRevenue = shipyardRevenue;
 
     /* Army cost (negative revenue). */
-    aPlayer->soldierRevenue = -8 * aPlayer->soldierCount;
+    aPlayer->soldierRevenue = -GRAIN_PER_SOLDIER * aPlayer->soldierCount;
 
     /* Customs tax revenue. */
     aPlayer->customsTaxRevenue = aPlayer->customsTax
@@ -680,28 +686,28 @@ void ComputeRevenues(Player *aPlayer)
 
     /* Sales tax revenue. */
     salesTaxRevenue =
-        (  static_cast<int>(1.8 * static_cast<float>(aPlayer->merchantCount))
-         + 33 * aPlayer->marketplaceRevenue
-         + 17 * aPlayer->grainMillRevenue
-         + 50 * aPlayer->foundryRevenue
-         + 70 * aPlayer->shipyardRevenue);
-    salesTaxRevenue = pow(salesTaxRevenue, 0.85);
+        (  static_cast<int>(SALESTAX_MERCHANT_MULT * static_cast<float>(aPlayer->merchantCount))
+         + SALESTAX_MKT_MULT * aPlayer->marketplaceRevenue
+         + SALESTAX_MILL_MULT * aPlayer->grainMillRevenue
+         + SALESTAX_FOUNDRY_MULT * aPlayer->foundryRevenue
+         + SALESTAX_SHIPYARD_MULT * aPlayer->shipyardRevenue);
+    salesTaxRevenue = pow(salesTaxRevenue, REV_EXP_SALES_TAX);
     aPlayer->salesTaxRevenue =
           aPlayer->salesTax
-        * (salesTaxRevenue + 5 * aPlayer->nobleCount + aPlayer->serfCount)
+        * (salesTaxRevenue + SALESTAX_NOBLE_MULT * aPlayer->nobleCount + aPlayer->serfCount)
         / 100;
 
     /* Income tax revenue. */
     incomeTaxRevenue =
-          static_cast<int>(1.3 * static_cast<float>(aPlayer->serfCount))
-        + 145 * aPlayer->nobleCount
-        + 39 * aPlayer->merchantCount
-        + 99 * aPlayer->marketplaceCount
-        + 99 * aPlayer->grainMillCount
-        + 425 * aPlayer->foundryCount
-        + 965 * aPlayer->shipyardCount;
+          static_cast<int>(INCOMETAX_SERF_MULT * static_cast<float>(aPlayer->serfCount))
+        + INCOMETAX_NOBLE_MULT * aPlayer->nobleCount
+        + INCOMETAX_MERCHANT_MULT * aPlayer->merchantCount
+        + INCOMETAX_MKT_MULT * aPlayer->marketplaceCount
+        + INCOMETAX_MILL_MULT * aPlayer->grainMillCount
+        + INCOMETAX_FOUNDRY_MULT * aPlayer->foundryCount
+        + INCOMETAX_SHIPYARD_MULT * aPlayer->shipyardCount;
     incomeTaxRevenue = aPlayer->incomeTax * incomeTaxRevenue / 100;
-    aPlayer->incomeTaxRevenue = pow(incomeTaxRevenue, 0.97);
+    aPlayer->incomeTaxRevenue = pow(incomeTaxRevenue, REV_EXP_INCOME_TAX);
 
     /* Update treasury. */
     int totalRevenue = aPlayer->customsTaxRevenue
@@ -738,10 +744,10 @@ SoldierCap ComputeSoldierCap(Player *aPlayer)
     int totalPeople = aPlayer->serfCount
                       + aPlayer->merchantCount
                       + aPlayer->nobleCount;
-    float equipRatio = 0.05 + 0.015 * aPlayer->foundryCount;
+    float equipRatio = EQUIP_RATIO_BASE + EQUIP_RATIO_PER_FOUNDRY * aPlayer->foundryCount;
     int maxEquip = MAX(0, static_cast<int>(equipRatio * totalPeople)
                           - aPlayer->soldierCount);
-    int maxNobles = MAX(0, (20 * aPlayer->nobleCount)
+    int maxNobles = MAX(0, (NOBLE_LEADERSHIP * aPlayer->nobleCount)
                            - aPlayer->soldierCount);
     int maxTreasury = aPlayer->treasury / COST_SOLDIER;
     int maxSerfs = aPlayer->serfCount;
@@ -836,18 +842,19 @@ int TradeGrain(Player *buyer, Player *seller, int amount)
     if (amount > seller->grainForSale)
         amount = seller->grainForSale;
 
-    /* Price includes 10% marketplace markup (same as human path). */
+    /* Price includes marketplace markup. */
+    float markupFactor = 1.0f - GRAIN_MARKUP;
     int totalPrice = static_cast<int>(
-        (static_cast<float>(amount) * seller->grainPrice) / 0.9);
+        (static_cast<float>(amount) * seller->grainPrice) / markupFactor);
     if (totalPrice > buyer->treasury)
     {
         /* Buy only what we can afford. */
         amount = static_cast<int>(
-            (static_cast<float>(buyer->treasury) * 0.9) / seller->grainPrice);
+            (static_cast<float>(buyer->treasury) * markupFactor) / seller->grainPrice);
         if (amount <= 0)
             return 0;
         totalPrice = static_cast<int>(
-            (static_cast<float>(amount) * seller->grainPrice) / 0.9);
+            (static_cast<float>(amount) * seller->grainPrice) / markupFactor);
     }
 
     buyer->grain += amount;
@@ -884,19 +891,41 @@ void ListGrainForSale(Player *aPlayer, int amount, float price)
 }
 
 
+int WithdrawGrain(Player *aPlayer, int amount)
+{
+    if (amount <= 0 || aPlayer->grainForSale <= 0)
+        return 0;
+    if (amount > aPlayer->grainForSale)
+        amount = aPlayer->grainForSale;
+
+    int returned = static_cast<int>(amount * (1.0f - GRAIN_WITHDRAW_FEE));
+    aPlayer->grainForSale -= amount;
+    aPlayer->grain += returned;
+    int lost = amount - returned;
+
+    /* Reset price if nothing left on market. */
+    if (aPlayer->grainForSale <= 0)
+        aPlayer->grainPrice = 0.0f;
+
+    GameLog("  Withdrew %d grain (-%d spoilage)  For sale: %d  Grain: %d\n",
+            amount, lost, aPlayer->grainForSale, aPlayer->grain);
+    return returned;
+}
+
+
 int SellLandToBarbarians(Player *aPlayer, int acres)
 {
     if (acres <= 0)
         return 0;
 
-    /* Can't sell more than 95% of land. */
-    int maxSell = static_cast<int>(0.95 * static_cast<float>(aPlayer->land));
+    /* Can't sell more than LAND_MAX_SELL_PCT of land. */
+    int maxSell = static_cast<int>(LAND_MAX_SELL_PCT * static_cast<float>(aPlayer->land));
     if (acres > maxSell)
         acres = maxSell;
     if (acres <= 0)
         return 0;
 
-    aPlayer->treasury += 2 * acres;
+    aPlayer->treasury += static_cast<int>(LAND_SELL_PRICE) * acres;
     aPlayer->land -= acres;
     barbarianLand += acres;
 

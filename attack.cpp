@@ -39,7 +39,7 @@ static void GetSoldiersToAttack(Battle *aBattle);
 
 static void RunBattle(Battle *aBattle);
 
-static void DisplayBattleResults(Battle *aBattle);
+static void DisplayBattleResults(Battle *aBattle, bool humanAttacker);
 
 static void Sack(Player *aTargetPlayer);
 
@@ -47,7 +47,6 @@ static void DrawAttackScreen(Player *aPlayer);
 
 static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve);
 
-static void DisplayCPUBattleResults(Battle *aBattle);
 
 static void InitBattle(Battle *aBattle, Player *aPlayer);
 
@@ -76,7 +75,7 @@ void AttackScreen(Player *aPlayer)
     int     maxAttacks;
 
     /* Determine the maximum number of attacks per year. */
-    maxAttacks = (aPlayer->nobleCount / 4) + 1;
+    maxAttacks = (aPlayer->nobleCount / ATTACKS_PER_NOBLE_DIV) + 1;
 
     /* Attack other countries. */
     aPlayer->attackCount = 0;
@@ -150,7 +149,7 @@ void CPUAttackScreen(Player *aPlayer)
     LogPlayerDiplomacy(aPlayer);
 
     /* Don't attack during the treaty period. */
-    if (year < treatyYears)
+    if (year <= treatyYears)
         return;
 
     /* Don't attack if no soldiers. */
@@ -158,7 +157,7 @@ void CPUAttackScreen(Player *aPlayer)
         return;
 
     /* Maximum attacks per year, same rule as humans. */
-    maxAttacks = (aPlayer->nobleCount / 4) + 1;
+    maxAttacks = (aPlayer->nobleCount / ATTACKS_PER_NOBLE_DIV) + 1;
     aPlayer->attackCount = 0;
 
     /* Compute the soldier reserve needed to withstand retaliation. */
@@ -343,7 +342,7 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
     Battle battle;
 
     /* Can't attack other players during the treaty period. */
-    if ((aTargetPlayer != nullptr) && (year < treatyYears))
+    if ((aTargetPlayer != nullptr) && (year <= treatyYears))
     {
         CLEAR_MSG_AREA();
         ShowMessage("Due to international treaty, you cannot attack\n"
@@ -366,7 +365,7 @@ static void Attack(Player *aPlayer, Player *aTargetPlayer)
 
     /* Battle. */
     RunBattle(&battle);
-    DisplayBattleResults(&battle);
+    DisplayBattleResults(&battle, true);
     ApplyBattleResults(&battle, aPlayer, aTargetPlayer);
 }
 
@@ -408,7 +407,7 @@ static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
     /* Set up the target and fight. */
     SetBattleTarget(&battle, aTargetPlayer);
     RunBattle(&battle);
-    DisplayCPUBattleResults(&battle);
+    DisplayBattleResults(&battle, false);
     ApplyBattleResults(&battle, aPlayer, aTargetPlayer);
 }
 
@@ -419,95 +418,6 @@ static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
  *   aBattle                Battle for which to display results.
  */
 
-static void DisplayCPUBattleResults(Battle *aBattle)
-{
-    Player *player;
-    Player *targetPlayer;
-    int     landCaptured;
-
-    /* Get battle information. */
-    player = aBattle->player;
-    targetPlayer = aBattle->targetPlayer;
-    landCaptured = aBattle->landCaptured;
-
-    /* Display battle results. */
-    UITitle("Battle Over");
-    printw("\n");
-    if ((targetPlayer != nullptr) && aBattle->targetOverrun)
-    {
-        UIColor(UIC_GOOD);
-        printw("The country of %s was overrun by %s %s!\n",
-               targetPlayer->country->name,
-               player->title,
-               player->name);
-        UIColorOff();
-    }
-    else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
-    {
-        UIColor(UIC_GOOD);
-        printw("%s %s seized all barbarian lands!\n",
-               player->title,
-               player->name);
-        UIColorOff();
-    }
-    else if (aBattle->targetDefeated)
-    {
-        UIColor(UIC_GOOD);
-        printw("The forces of %s %s were victorious.\n",
-               player->title,
-               player->name);
-        printw(" %s acres were seized", FmtNum(landCaptured));
-        if (targetPlayer != nullptr)
-            printw(" from %s.\n", targetPlayer->country->name);
-        else
-            printw(" from the barbarians.\n");
-        UIColorOff();
-    }
-    else
-    {
-        UIColor(UIC_BAD);
-        printw("%s %s was defeated", player->title, player->name);
-        if (targetPlayer != nullptr)
-            printw(" by %s.\n", targetPlayer->country->name);
-        else
-            printw(" by the barbarians.\n");
-        UIColorOff();
-        if (landCaptured > 2)
-            landCaptured /= RandRange(3);
-        else
-            landCaptured = 0;
-    }
-
-    /* Check for sacking. */
-    if (   (targetPlayer != nullptr)
-        && !aBattle->targetOverrun
-        && (landCaptured > (aBattle->targetLand / 3)))
-    {
-        Sack(targetPlayer);
-    }
-
-    /* Wait for Enter if a human was involved or a country was destroyed. */
-    bool humanInvolved = (targetPlayer != nullptr && targetPlayer->human) ||
-                         (player != nullptr && player->human);
-    bool countryDestroyed = (targetPlayer != nullptr) && aBattle->targetOverrun;
-    if (humanInvolved || countryDestroyed)
-    {
-        printw("\n");
-        UISeparator();
-        printw("<Enter>? ");
-        char input[80];
-        getnstr(input, sizeof(input));
-    }
-    else
-    {
-        refresh();
-        if (!fastMode)
-            SleepUs(2 * DELAY_TIME);
-    }
-
-    /* Update battle information. */
-    aBattle->landCaptured = landCaptured;
-}
 
 
 /*
@@ -616,13 +526,14 @@ static void RunBattle(Battle *aBattle)
          * Per-round delay scales with the square root of the smaller force,
          * recalculated each round so the pace slows as forces dwindle.
          *
-         *   delay = 37.5ms * sqrt(smaller)
+         *   delay = BATTLE_DELAY_MS * sqrt(smaller)
          */
         {
             int smaller = soldierCount < targetSoldierCount
                           ? soldierCount : targetSoldierCount;
             if (smaller < 1) smaller = 1;
-            roundDelayUs = static_cast<int>(37500.0 * sqrt(static_cast<double>(smaller)));
+            float delayScale = aBattle->targetSerfs ? 0.25f : 1.0f;
+            roundDelayUs = static_cast<int>(BATTLE_DELAY_MS * 1000.0 * delayScale * sqrt(static_cast<double>(smaller)));
         }
         if (!fastMode)
             SleepUs(roundDelayUs);
@@ -633,11 +544,11 @@ static void RunBattle(Battle *aBattle)
          * the attacker's force so battles against large serf armies don't
          * end in a single round.
          */
-        soldierKillCount = (soldierCount / 15) + 1;
-        if (soldierCount > 200)
-            soldierKillCount = (soldierCount / 8) + 1;
-        if (soldierCount > 1000)
-            soldierKillCount = (soldierCount / 5) + 1;
+        soldierKillCount = (soldierCount / CASUALTY_DIV_BASE) + 1;
+        if (soldierCount > CASUALTY_THRESHOLD_MID)
+            soldierKillCount = (soldierCount / CASUALTY_DIV_MID) + 1;
+        if (soldierCount > CASUALTY_THRESHOLD_HIGH)
+            soldierKillCount = (soldierCount / CASUALTY_DIV_HIGH) + 1;
         if (RandRange(soldierEfficiency) < RandRange(targetSoldierEfficiency))
         {
             /* Player lost. */
@@ -687,96 +598,176 @@ static void RunBattle(Battle *aBattle)
  *   aBattle                Battle for which to display results.
  */
 
-static void DisplayBattleResults(Battle *aBattle)
+/*
+ * Display results of the battle specified by aBattle.  Unified for both
+ * human-initiated and CPU-initiated battles.
+ *
+ *   aBattle                Battle for which to display results.
+ *   humanAttacker          True if the attacking player is human.
+ */
+
+static void DisplayBattleResults(Battle *aBattle, bool humanAttacker)
 {
     char    input[80];
-    Player *player;
-    Player *targetPlayer;
-    int     soldierCount;
-    int     targetLand;
-    int     landCaptured;
-    bool    targetSerfs;
+    Player *player = aBattle->player;
+    Player *targetPlayer = aBattle->targetPlayer;
+    int     landCaptured = aBattle->landCaptured;
+    bool    humanDefender = (targetPlayer != nullptr && targetPlayer->human);
 
-    /* Get battle information. */
-    player = aBattle->player;
-    targetPlayer = aBattle->targetPlayer;
-    soldierCount = aBattle->soldierCount;
-    targetLand = aBattle->targetLand;
-    targetSerfs = aBattle->targetSerfs;
-    landCaptured = aBattle->landCaptured;
-
-    /* Display battle results. */
     UITitle("Battle Over");
     printw("\n");
+
     if ((targetPlayer != nullptr) && aBattle->targetOverrun)
     {
-        /* Target player overrun. */
-        UIColor(UIC_GOOD);
-        printw("The country of %s was overrun!\n", targetPlayer->country->name);
-        printw("All enemy nobles were summarily executed!\n\n\n");
-        UIColorOff();
-        printw("The remaining enemy soldiers "
-               "were imprisoned. All enemy serfs\n");
-        printw("have pledged oaths of fealty to "
-               "you, and should now be consid-\n");
-        printw("ered to be your people too. All "
-               "enemy merchants fled the coun-\n");
-        printw("try. Unfortunately, all enemy "
-               "assets were sacked and destroyed\n");
-        printw("by your revengeful army in a "
-               "drunken riot following the victory\n");
-        printw("celebration.\n");
+        if (humanDefender)
+        {
+            UIColor(UIC_BAD);
+            printw("Your country has been overrun by %s %s of %s!\n",
+                   player->title, player->name, player->country->name);
+            printw("All your nobles were executed!\n");
+            UIColorOff();
+        }
+        else if (humanAttacker)
+        {
+            UIColor(UIC_GOOD);
+            printw("The country of %s was overrun!\n",
+                   targetPlayer->country->name);
+            printw("All enemy nobles were summarily executed!\n\n\n");
+            UIColorOff();
+            printw("The remaining enemy soldiers "
+                   "were imprisoned. All enemy serfs\n");
+            printw("have pledged oaths of fealty to "
+                   "you, and should now be consid-\n");
+            printw("ered to be your people too. All "
+                   "enemy merchants fled the coun-\n");
+            printw("try. Unfortunately, all enemy "
+                   "assets were sacked and destroyed\n");
+            printw("by your revengeful army in a "
+                   "drunken riot following the victory\n");
+            printw("celebration.\n");
+        }
+        else
+        {
+            UIColor(UIC_GOOD);
+            printw("The country of %s was overrun by %s %s!\n",
+                   targetPlayer->country->name,
+                   player->title, player->name);
+            UIColorOff();
+        }
     }
     else if ((targetPlayer == nullptr) && aBattle->targetOverrun)
     {
         UIColor(UIC_GOOD);
         printw("All barbarian lands have been seized\n");
-        printw("The remaining barbarians fled\n");
+        if (humanAttacker)
+            printw("The remaining barbarians fled\n");
+        else
+            printw("%s %s seized all barbarian lands!\n",
+                   player->title, player->name);
         UIColorOff();
     }
     else if (aBattle->targetDefeated)
     {
-        /* Player won. */
-        UIColor(UIC_GOOD);
-        printw("The forces of %s %s were victorious.\n",
-               player->title,
-               player->name);
-        printw(" %s acres were seized.\n", FmtNum(landCaptured));
-        UIColorOff();
+        /* Attacker won. */
+        if (humanDefender)
+        {
+            UIColor(UIC_BAD);
+            printw("%s %s of %s attacked your country!\n",
+                   player->title, player->name, player->country->name);
+            printw("The enemy sent %s soldiers. You lost the battle.\n",
+                   FmtNum(aBattle->soldiersToAttackCount));
+            printw("%s acres were seized from your lands.\n",
+                   FmtNum(landCaptured));
+            UIColorOff();
+        }
+        else
+        {
+            UIColor(UIC_GOOD);
+            printw("The forces of %s %s were victorious.\n",
+                   player->title, player->name);
+            printw(" %s acres were seized", FmtNum(landCaptured));
+            if (targetPlayer != nullptr)
+                printw(" from %s.\n", targetPlayer->country->name);
+            else
+                printw(" from the barbarians.\n");
+            UIColorOff();
+        }
     }
     else
     {
-        /* Player lost. */
-        UIColor(UIC_BAD);
-        printw("%s %s was defeated.\n", player->title, player->name);
-        UIColorOff();
+        /* Attacker lost. */
+        if (humanDefender)
+        {
+            UIColor(UIC_GOOD);
+            printw("%s %s of %s attacked your country!\n",
+                   player->title, player->name, player->country->name);
+            printw("The enemy sent %s soldiers. You repelled the attack!\n",
+                   FmtNum(aBattle->soldiersToAttackCount));
+            UIColorOff();
+        }
+        else if (humanAttacker)
+        {
+            UIColor(UIC_BAD);
+            printw("%s %s was defeated.\n", player->title, player->name);
+            UIColorOff();
+        }
+        else
+        {
+            UIColor(UIC_BAD);
+            printw("%s %s was defeated", player->title, player->name);
+            if (targetPlayer != nullptr)
+                printw(" by %s.\n", targetPlayer->country->name);
+            else
+                printw(" by the barbarians.\n");
+            UIColorOff();
+        }
+
+        /* Partial land capture on defeat. */
         if (landCaptured > 2)
         {
             landCaptured /= RandRange(3);
-            printw("In your defeat you nevertheless "
-                   "managed to capture %s acres.\n",
-                   FmtNum(landCaptured));
+            if (humanDefender)
+                printw("Despite your victory, the enemy captured %s acres.\n",
+                       FmtNum(landCaptured));
+            else if (humanAttacker)
+                printw("In your defeat you nevertheless "
+                       "managed to capture %s acres.\n",
+                       FmtNum(landCaptured));
         }
         else
         {
             landCaptured = 0;
-            printw(" 0 acres were seized.\n");
+            if (humanDefender)
+                printw("No land was lost.\n");
+            else if (humanAttacker)
+                printw(" 0 acres were seized.\n");
         }
     }
 
     /* Check for sacking. */
     if (   (targetPlayer != nullptr)
         && !aBattle->targetOverrun
-        && (landCaptured > (targetLand / 3)))
+        && (landCaptured > (aBattle->targetLand / SACK_THRESHOLD_DIV)))
     {
         Sack(targetPlayer);
     }
 
-    /* Wait for player. */
-    printw("\n");
-    UISeparator();
-    printw("<Enter>? ");
-    getnstr(input, sizeof(input));
+    /* Wait for Enter if a human was involved or a country was destroyed. */
+    bool needsPrompt = humanAttacker || humanDefender
+                       || ((targetPlayer != nullptr) && aBattle->targetOverrun);
+    if (needsPrompt)
+    {
+        printw("\n");
+        UISeparator();
+        printw("<Enter>? ");
+        getnstr(input, sizeof(input));
+    }
+    else
+    {
+        refresh();
+        if (!fastMode)
+            SleepUs(2 * DELAY_TIME);
+    }
 
     /* Update battle information. */
     aBattle->landCaptured = landCaptured;

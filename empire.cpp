@@ -219,9 +219,30 @@ int main(int argc, char *argv[])
         /* Log detailed stats and diplomacy for all countries. */
         GameLog("\n################################################################"
                 "################\n");
-        GameLog("###  YEAR %d  ###\n", year);
+        GameLog("###  YEAR %d  —  Weather: %d/6 (%s)  ###\n",
+                year, weather, weatherList[weather - 1]);
         GameLog("################################################################"
                 "################\n");
+        /* Sort players by power for log tables. */
+        int logOrder[COUNTRY_COUNT];
+        int logCount = 0;
+        for (i = 0; i < COUNTRY_COUNT; i++)
+            logOrder[logCount++] = i;
+        for (int a = 0; a < logCount - 1; a++)
+            for (int b = a + 1; b < logCount; b++)
+            {
+                float pa = playerList[logOrder[a]].dead ? 0 :
+                           ComputePlayerPower(&playerList[logOrder[a]]);
+                float pb = playerList[logOrder[b]].dead ? 0 :
+                           ComputePlayerPower(&playerList[logOrder[b]]);
+                if (pb > pa)
+                {
+                    int tmp = logOrder[a];
+                    logOrder[a] = logOrder[b];
+                    logOrder[b] = tmp;
+                }
+            }
+
         /* Stats table. */
         GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
                 "Country", "Land", "Grain", "Gold", "Serfs", "Merch",
@@ -232,9 +253,9 @@ int main(int argc, char *argv[])
                 "------", "-----", "----", "-----",
                 "---", "---", "---", "---", "---",
                 "---", "---", "---", "------");
-        for (i = 0; i < COUNTRY_COUNT; i++)
+        for (int s = 0; s < logCount; s++)
         {
-            Player *p = &playerList[i];
+            Player *p = &playerList[logOrder[s]];
             if (p->dead)
             {
                 GameLog("%-14s  -- DEAD --\n", p->country->name);
@@ -252,27 +273,29 @@ int main(int argc, char *argv[])
         }
         GameLog("\n");
 
-        /* Diplomacy table. */
+        /* Diplomacy table (columns sorted by power). */
         GameLog("Diplomacy:       ");
-        for (i = 0; i < COUNTRY_COUNT; i++)
+        for (int s = 0; s < logCount; s++)
         {
-            if (!playerList[i].dead)
-                GameLog(" %10s", playerList[i].country->name);
+            if (!playerList[logOrder[s]].dead)
+                GameLog(" %10s", playerList[logOrder[s]].country->name);
         }
         GameLog("\n");
-        for (i = 0; i < COUNTRY_COUNT; i++)
+        for (int sr = 0; sr < logCount; sr++)
         {
-            if (playerList[i].dead || playerList[i].human)
+            int ri = logOrder[sr];
+            if (playerList[ri].dead || playerList[ri].human)
                 continue;
-            GameLog("%-14s ", playerList[i].country->name);
-            for (int j = 0; j < COUNTRY_COUNT; j++)
+            GameLog("%-14s ", playerList[ri].country->name);
+            for (int sc = 0; sc < logCount; sc++)
             {
-                if (playerList[j].dead)
+                int ci = logOrder[sc];
+                if (playerList[ci].dead)
                     continue;
-                if (i == j)
+                if (ri == ci)
                     GameLog(" %10s", "---");
                 else
-                    GameLog(" %+10.3f", playerList[i].diplomacy[j]);
+                    GameLog(" %+10.3f", playerList[ri].diplomacy[ci]);
             }
             GameLog("\n");
         }
@@ -633,13 +656,13 @@ static void GameSetupScreen()
 
         /* Initialize the player's state. */
         player->dead = false;
-        player->land = 10000;
-        player->grain = 15000 + RandRange(10000);
-        player->treasury = 1000;
-        player->serfCount = 2000;
-        player->soldierCount = 20;
-        player->nobleCount = 1;
-        player->merchantCount = 25;
+        player->land = STARTING_LAND;
+        player->grain = STARTING_GRAIN_BASE + RandRange(STARTING_GRAIN_RAND);
+        player->treasury = STARTING_TREASURY;
+        player->serfCount = STARTING_SERFS;
+        player->soldierCount = STARTING_SOLDIERS;
+        player->nobleCount = STARTING_NOBLES;
+        player->merchantCount = STARTING_MERCHANTS;
         player->armyEfficiency = 15;
         player->customsTax = 20;
         player->salesTax = 5;

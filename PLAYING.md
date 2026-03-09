@@ -16,7 +16,7 @@ Your granary is the foundation of your country. Each year:
 
 - Rats eat 1-30% of your stored grain (random).
 - Your serfs harvest grain from available farmland. Better weather means a bigger harvest.
-- You can buy grain from other countries, sell grain on the market, or sell land to barbarians for quick cash.
+- You can buy grain from other countries, sell grain on the market, withdraw listed grain (with a 15% spoilage penalty), reprice your listings, or sell land to barbarians for quick cash.
 - You must feed your army and your people from your grain reserves. Press Enter to feed the required amount, type a number to feed more or less, or use shortcuts: `+` feeds 150% of the requirement, and `++` feeds 200% (people only).
 
 Underfeeding your people causes malnutrition and starvation. Overfeeding attracts immigrants. Underfeeding your army causes soldiers to starve and desert, and lowers their combat effectiveness.
@@ -120,8 +120,8 @@ Keep building soldiers between wars. Don't leave yourself vulnerable while your 
 - **Don't over-tax.** High taxes feel productive but they quietly kill your marketplace and mill revenue.
 - **Foundries are a tradeoff.** They enable soldiers and generate revenue, but each one costs you 500 bushels of grain per year. Don't build more than your harvest can absorb.
 - **Nobles are the bottleneck.** Without nobles you can't recruit soldiers. Build palaces and keep customs low for immigration.
-- **Sell surplus grain.** If your reserves are much larger than your needs, list grain on the market. Other countries will buy it and the revenue goes straight to your treasury.
-- **Don't sell land unless desperate.** At 2 per acre, land is cheap. You need it for farming. Only sell in an emergency.
+- **Sell surplus grain.** If your reserves are much larger than your needs, list grain on the market. Grain is valuable — surplus sales can fund your early marketplace expansion.
+- **Don't sell too much land.** Land sells for 5 per acre, which is tempting, but you lose the grain production forever. Selling 10-20% for an early marketplace boost is reasonable; selling half your land creates a permanent grain deficit that eats your revenue.
 - **Shipyards are endgame.** They're expensive and their revenue depends on having lots of merchants, marketplaces, and foundries already. Don't build them early.
 - **Don't turtle too long.** Staying peaceful builds goodwill, but growing too powerful triggers envy. CPU players will eventually unite against you if your power score far exceeds theirs. Use your strength before the window closes.
 - **Pick enemies strategically.** Attacking a country that others already dislike earns you friends. Attacking a popular country turns everyone against you.

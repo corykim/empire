@@ -83,7 +83,7 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 **Diplomacy lifecycle:**
 - **Init**: Random values in `[-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]` (±0.25)
 - **Decay**: All CPU scores decay 10% toward zero at the start of each player's turn
-- **Peace bonus**: +0.05 per peaceful turn (skipped during treaty years)
+- **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years)
 - **Direct attack**: Target sets score to -1.0 toward attacker
 - **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it (amplified by target weakness × attacker strength)
 
@@ -123,13 +123,20 @@ CPUs attack multiple times per turn (up to `nobles/4 + 1`), re-evaluating target
 
 ### Constants
 
-Defined as `constexpr int` in `empire.h`:
+Struct sizing constants in `empire.h` (needed before `economy.h` is included):
 - `COUNTRY_COUNT = 6`, `TITLE_COUNT = 4`, `DIFFICULTY_COUNT = 5`
-- `DELAY_TIME = 2000000` (2 seconds, in microseconds)
-- `SERF_EFFICIENCY = 5`
 
-Investment costs defined as `constexpr` in `economy.h` (single source of truth):
-- `COST_MARKETPLACE`=1000, `COST_GRAIN_MILL`=2000, `COST_FOUNDRY`=7000, `COST_SHIPYARD`=8000, `COST_SOLDIER`=8, `COST_PALACE`=5000
+All other game-wide constants in `economy.h`, organized by category:
+- **Core game**: `DELAY_TIME`, `SERF_EFFICIENCY`, `RANDOM_DEATH_CHANCE`
+- **Starting values**: `STARTING_LAND`=10000, `STARTING_GRAIN_BASE`=15000, `STARTING_TREASURY`=1000, etc.
+- **Investment costs**: `COST_MARKETPLACE`=1000 through `COST_PALACE`=5000
+- **Grain/farming**: `GRAIN_YIELD_MULT`=0.72, `GRAIN_PER_PERSON`=5, `GRAIN_PER_SOLDIER`=8, `FOUNDRY_POLLUTION`=500, etc.
+- **Trading**: `GRAIN_MARKUP`=10%, `GRAIN_WITHDRAW_FEE`=15%, `GRAIN_PRICE_BASE`=0.50, `LAND_SELL_PRICE`=5.0
+- **Population**: birth/death/immigration rates and ratios
+- **Military**: `EQUIP_RATIO_BASE`, `NOBLE_LEADERSHIP`=20, `MAX_ATTACK_CHANCE`=95
+- **Revenue**: exponents (`REV_EXP_INVESTMENT`=0.9, etc.) and per-investment multipliers
+- **Combat**: `BATTLE_DELAY_MS`, casualty thresholds and divisors, `SACK_THRESHOLD_DIV`
+- **Diplomacy**: all `DIPLOMACY_*` constants
 
 Additional globals in `empire.h` / `empire.cpp`:
 - `treatyYears` — no player-vs-player attacks before this year, `5 - difficulty` (L1=5, L5=1)

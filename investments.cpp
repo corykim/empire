@@ -613,7 +613,7 @@ void BuySoldiers(Player *aPlayer)
                 ShowMessage("Limited by nobles (%s lead up to %s troops).\n"
                             "You can recruit %s soldiers.",
                             FmtNum(aPlayer->nobleCount),
-                            FmtNum(20 * aPlayer->nobleCount),
+                            FmtNum(NOBLE_LEADERSHIP * aPlayer->nobleCount),
                             FmtNum(soldierCount));
                 break;
             case SoldierCap::FOUNDRIES:
@@ -760,7 +760,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
          * soldiers.
          */
         if ((static_cast<float>(totalSoldierCount) / static_cast<float>(totalPeopleCount)) >
-            (0.05 + 0.015*aPlayer->foundryCount))
+            (EQUIP_RATIO_BASE + EQUIP_RATIO_PER_FOUNDRY*aPlayer->foundryCount))
         {
             valid = false;
             snprintf(invalidMessage,
@@ -768,7 +768,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
                      "You cannot equip and maintain so many troops, %s",
                      aPlayer->title);
         }
-        else if (totalSoldierCount > (20 * aPlayer->nobleCount))
+        else if (totalSoldierCount > (NOBLE_LEADERSHIP * aPlayer->nobleCount))
         {
             valid = false;
             snprintf(invalidMessage,

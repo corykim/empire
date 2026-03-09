@@ -18,9 +18,27 @@
 
 /*------------------------------------------------------------------------------
  *
- * Investment costs — single source of truth.
+ * Game-wide constants — single source of truth.
+ *
+ * All tunable numbers live here.  Grouped by system.
  */
 
+/* Core game. */
+constexpr int DELAY_TIME          = 2000000;  /* Base message delay (microseconds) */
+constexpr int SERF_EFFICIENCY     = 5;        /* Serf fighting efficiency (10 = 100%) */
+constexpr int RANDOM_DEATH_CHANCE = 400;      /* 1 in N chance of random death per year */
+
+/* Starting values. */
+constexpr int STARTING_LAND       = 10000;
+constexpr int STARTING_GRAIN_BASE = 15000;
+constexpr int STARTING_GRAIN_RAND = 10000;
+constexpr int STARTING_TREASURY   = 1000;
+constexpr int STARTING_SERFS      = 2000;
+constexpr int STARTING_SOLDIERS   = 20;
+constexpr int STARTING_NOBLES     = 1;
+constexpr int STARTING_MERCHANTS  = 25;
+
+/* Investment costs. */
 constexpr int COST_MARKETPLACE = 1000;
 constexpr int COST_GRAIN_MILL  = 2000;
 constexpr int COST_FOUNDRY     = 7000;
@@ -28,20 +46,103 @@ constexpr int COST_SHIPYARD    = 8000;
 constexpr int COST_SOLDIER     = 8;
 constexpr int COST_PALACE      = 5000;
 
+/* Grain and farming. */
+constexpr float GRAIN_YIELD_MULT    = 0.72f;  /* Harvest = weather * land * this */
+constexpr int   GRAIN_SEED_PER_ACRE = 3;      /* Acres that can be seeded per bushel */
+constexpr int   ACRES_PER_SERF      = 5;      /* Max acres one serf can farm */
+constexpr int   GRAIN_PER_PERSON    = 5;      /* Bushels per civilian per year */
+constexpr int   GRAIN_PER_NOBLE_MULT = 3;     /* Nobles need this × GRAIN_PER_PERSON */
+constexpr int   GRAIN_PER_SOLDIER   = 8;      /* Bushels per soldier per year */
+constexpr int   FOUNDRY_POLLUTION   = 500;    /* Harvest penalty per foundry */
+constexpr int   MAX_RAT_PERCENT     = 30;     /* Max % of grain eaten by rats */
 
-/*------------------------------------------------------------------------------
- *
- * Diplomacy tuning constants.
- */
+/* Trading. */
+constexpr float GRAIN_MARKUP        = 0.10f;  /* Marketplace markup on grain purchases */
+constexpr float GRAIN_WITHDRAW_FEE  = 0.15f;  /* Penalty to withdraw grain from market */
+constexpr float GRAIN_PRICE_BASE    = 0.50f;  /* CPU base grain price per bushel */
+constexpr float GRAIN_PRICE_MAX     = 5.0f;   /* Max price humans can list grain at */
+constexpr float LAND_SELL_PRICE     = 5.0f;   /* Currency per acre when selling to barbarians */
+constexpr float LAND_MAX_SELL_PCT   = 0.95f;  /* Max fraction of land that can be sold */
 
-constexpr float DIPLOMACY_INIT_RANGE       = 0.25f;  /* Initial range: [-0.25, 0.25] */
-constexpr float DIPLOMACY_PEACE_BONUS      = 0.05f;  /* Per-turn bonus for not attacking */
-constexpr float DIPLOMACY_ATTACKED_ME      = -1.0f;  /* Set diplomacy to this if attacked */
-constexpr float DIPLOMACY_DECAY_RATE       = 0.10f;  /* Decay toward zero per turn */
-constexpr float DIPLOMACY_THIRD_PARTY_SCALE = 1.0f;  /* Scale for third-party attack effects */
-constexpr float DIPLOMACY_WEAKNESS_SCALE   = 1.0f;   /* How much weakness amplifies effects */
-constexpr float DIPLOMACY_ENVY_SCALE      = 1.5f;   /* Scale for envy toward powerful targets */
-constexpr float DIPLOMACY_RESERVE_SCALE    = 0.5f;   /* Fraction of worst threat to hold in reserve */
+/* Population. */
+constexpr float BIRTH_RATE_DIV              = 9.5f;  /* Pop divisor for births */
+constexpr int   DISEASE_DEATH_DIV           = 22;    /* Pop divisor for disease */
+constexpr int   MALNUTRITION_DEATH_DIV      = 15;    /* Moderate underfeed */
+constexpr int   MALNUTRITION_DEATH_DIV_SEVERE = 12;  /* Severe underfeed */
+constexpr int   STARVATION_DEATH_DIV        = 16;    /* Severe underfeed */
+constexpr float IMMIGRATION_FEED_MULT       = 1.5f;  /* Feed above this × need for immigration */
+constexpr float IMMIGRATION_CUSTOMS_MULT    = 1.5f;  /* Customs tax penalty on immigration */
+constexpr int   IMMIGRANT_MERCHANT_RATIO    = 5;     /* 1 in N immigrants is a merchant */
+constexpr int   IMMIGRANT_NOBLE_RATIO       = 25;    /* 1 in N immigrants is a noble */
+
+/* Military. */
+constexpr float EQUIP_RATIO_BASE       = 0.05f;   /* Base soldier-to-civilian ratio */
+constexpr float EQUIP_RATIO_PER_FOUNDRY = 0.015f; /* Additional ratio per foundry */
+constexpr int   NOBLE_LEADERSHIP        = 20;      /* Soldiers per noble */
+constexpr int   MAX_ATTACK_CHANCE       = 95;      /* Cap on CPU attack probability */
+constexpr int   ATTACKS_PER_NOBLE_DIV   = 4;       /* Max attacks = nobles / this + 1 */
+
+/* Revenue exponents (diminishing returns). */
+constexpr float REV_EXP_INVESTMENT = 0.9f;   /* Marketplace, grain mill, foundry, shipyard */
+constexpr float REV_EXP_SALES_TAX = 0.85f;   /* Sales tax base */
+constexpr float REV_EXP_INCOME_TAX = 0.97f;  /* Income tax */
+
+/* Revenue multipliers — marketplace. */
+constexpr int   MKT_REV_MULT      = 12;      /* Merchant contribution */
+constexpr int   MKT_REV_ADD       = 5;       /* Base per marketplace */
+constexpr int   MKT_REV_RAND      = 35;      /* Random merchant range (×2) */
+
+/* Revenue multipliers — grain mill. */
+constexpr float MILL_REV_MULT     = 5.8f;    /* Harvest contribution */
+constexpr int   MILL_REV_RAND     = 250;     /* Random harvest range */
+constexpr int   MILL_DIV_INCOME   = 20;      /* Income tax divisor component */
+constexpr int   MILL_DIV_SALES    = 40;      /* Sales tax divisor component */
+constexpr int   MILL_DIV_BASE     = 150;     /* Base divisor component */
+
+/* Revenue multipliers — foundry. */
+constexpr int   FOUNDRY_REV_RAND  = 150;     /* Random range */
+constexpr int   FOUNDRY_REV_BASE  = 400;     /* Base per foundry */
+
+/* Revenue multipliers — shipyard. */
+constexpr int   SHIP_MULT_MERCHANT    = 4;   /* Per merchant */
+constexpr int   SHIP_MULT_MARKETPLACE = 9;   /* Per marketplace */
+constexpr int   SHIP_MULT_FOUNDRY     = 15;  /* Per foundry */
+
+/* Revenue multipliers — sales tax base. */
+constexpr float SALESTAX_MERCHANT_MULT   = 1.8f;
+constexpr int   SALESTAX_MKT_MULT        = 33;
+constexpr int   SALESTAX_MILL_MULT       = 17;
+constexpr int   SALESTAX_FOUNDRY_MULT    = 50;
+constexpr int   SALESTAX_SHIPYARD_MULT   = 70;
+constexpr int   SALESTAX_NOBLE_MULT      = 5;
+
+/* Revenue multipliers — income tax base. */
+constexpr float INCOMETAX_SERF_MULT      = 1.3f;
+constexpr int   INCOMETAX_NOBLE_MULT     = 145;
+constexpr int   INCOMETAX_MERCHANT_MULT  = 39;
+constexpr int   INCOMETAX_MKT_MULT       = 99;
+constexpr int   INCOMETAX_MILL_MULT      = 99;
+constexpr int   INCOMETAX_FOUNDRY_MULT   = 425;
+constexpr int   INCOMETAX_SHIPYARD_MULT  = 965;
+
+/* Combat. */
+constexpr float BATTLE_DELAY_MS       = 37.5f;  /* Base delay per round (× sqrt(force)) */
+constexpr int   CASUALTY_DIV_BASE     = 15;     /* Kill rate: small armies */
+constexpr int   CASUALTY_THRESHOLD_MID = 200;   /* Threshold for medium armies */
+constexpr int   CASUALTY_DIV_MID      = 8;      /* Kill rate: medium armies */
+constexpr int   CASUALTY_THRESHOLD_HIGH = 1000; /* Threshold for large armies */
+constexpr int   CASUALTY_DIV_HIGH     = 5;      /* Kill rate: large armies */
+constexpr int   SACK_THRESHOLD_DIV    = 3;      /* Sack if capture > 1/N of land */
+
+/* Diplomacy. */
+constexpr float DIPLOMACY_INIT_RANGE       = 0.25f;
+constexpr float DIPLOMACY_PEACE_BONUS      = 0.03f;
+constexpr float DIPLOMACY_ATTACKED_ME      = -1.0f;
+constexpr float DIPLOMACY_DECAY_RATE       = 0.10f;
+constexpr float DIPLOMACY_THIRD_PARTY_SCALE = 1.0f;
+constexpr float DIPLOMACY_WEAKNESS_SCALE   = 1.0f;
+constexpr float DIPLOMACY_ENVY_SCALE      = 1.5f;
+constexpr float DIPLOMACY_RESERVE_SCALE    = 0.5f;
 
 
 /*------------------------------------------------------------------------------
@@ -407,6 +508,18 @@ int TradeGrain(Player *buyer, Player *seller, int amount);
  */
 
 void ListGrainForSale(Player *aPlayer, int amount, float price);
+
+
+/*
+ * Withdraw grain from the market back to reserves.  Applies
+ * GRAIN_WITHDRAW_FEE penalty (grain is lost to spoilage).
+ * Returns the amount actually returned to reserves.
+ *
+ *   aPlayer                Player withdrawing grain.
+ *   amount                 Bushels to withdraw (0 = all).
+ */
+
+int WithdrawGrain(Player *aPlayer, int amount);
 
 
 /*

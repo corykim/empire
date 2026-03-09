@@ -81,15 +81,6 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
         int idx = livingIndices[i];
         Player *candidate = &playerList[idx];
 
-        /* Skip if we don't meet the required soldier odds. */
-        if (requireOdds > 0.0f &&
-            aPlayer->soldierCount <
-            static_cast<int>(candidate->soldierCount * requireOdds))
-        {
-            weights[i] = 0.0f;
-            continue;
-        }
-
         float w = DiplomacyAttackWeight(aPlayer->diplomacy[idx],
                                       candidate->soldierCount);
 
@@ -100,6 +91,17 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
         float envy = (targetPower / attackerPower) - 1.0f;
         if (envy < 0.0f) envy = 0.0f;
         w += envy * envy * DIPLOMACY_ENVY_SCALE;
+
+        /* Military caution: penalize targets where we lack the preferred
+         * soldier advantage, but don't exclude them entirely.  Envy can
+         * still override caution for expeditionary attacks. */
+        if (requireOdds > 0.0f && candidate->soldierCount > 0)
+        {
+            float oddsRatio = static_cast<float>(aPlayer->soldierCount)
+                              / static_cast<float>(candidate->soldierCount);
+            if (oddsRatio < requireOdds)
+                w *= oddsRatio / requireOdds;
+        }
 
         /* Theory of mind: simulate diplomatic consequences of this attack. */
         float simScore = SimulateAttackOutcome(aPlayer, idx);
@@ -139,7 +141,7 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
      * maxWeight=2 (enemy at -1) → double aggression.
      * maxWeight≈0 (all friends, weak army) → near-zero aggression. */
     int effectiveChance = static_cast<int>(aggression * maxWeight);
-    if (effectiveChance > 95) effectiveChance = 95;
+    if (effectiveChance > MAX_ATTACK_CHANCE) effectiveChance = MAX_ATTACK_CHANCE;
 
     GameLog("  Attack chance: base %d%%, maxWeight %.2f, effective %d%%\n",
             aggression, maxWeight, effectiveChance);
@@ -270,26 +272,49 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
         int sellAmount = surplus * (100 - errorPct) / 100;
         if (sellAmount > 100)
         {
-            /* Price: optimal ~2.5, deviated. */
-            float price = 1.5 + static_cast<float>(deviate(10, 20)) / 10.0;
+            /* Price competitively: match existing market prices if any,
+             * otherwise use base price derived from land value. */
+            float marketPrice = 0.0f;
+            int sellers = 0;
+            for (int i = 0; i < COUNTRY_COUNT; i++)
+            {
+                if (&playerList[i] != aPlayer && !playerList[i].dead
+                    && playerList[i].grainForSale > 0)
+                {
+                    marketPrice += playerList[i].grainPrice;
+                    sellers++;
+                }
+            }
+            float price;
+            if (sellers > 0)
+            {
+                /* Match the market average, with slight random deviation. */
+                price = (marketPrice / sellers)
+                        * (0.95f + static_cast<float>(RandRange(11)) / 100.0f);
+            }
+            else
+            {
+                /* No market: base price from land economics. */
+                price = GRAIN_PRICE_BASE
+                        + static_cast<float>(deviate(2, 4)) / 1000.0f;
+            }
+            if (price < GRAIN_PRICE_BASE) price = GRAIN_PRICE_BASE;
             ListGrainForSale(aPlayer, sellAmount, price);
         }
     }
 
     /*
-     * SELL LAND if treasury is very low and we need money.
-     * Only sell if we have plenty of land relative to population.
-     * Smarter CPUs are more willing to sell land for investment capital.
+     * SELL LAND only as a last resort when treasury is empty and we have
+     * far more land than we can farm.  Land is critical for long-term
+     * growth — selling it early cripples the economy.
      */
     int population = aPlayer->serfCount + aPlayer->merchantCount
                      + aPlayer->nobleCount + aPlayer->soldierCount;
-    if (aPlayer->treasury < COST_MARKETPLACE && aPlayer->land > population * 3)
+    if (aPlayer->treasury < COST_SOLDIER && aPlayer->land > population * 5)
     {
-        /* Sell enough land to afford a marketplace. */
+        /* Sell just enough to cover immediate needs. */
         int acresNeeded = (COST_MARKETPLACE - aPlayer->treasury + 1) / 2;
-        /* Add some extra for smarter CPUs (they plan ahead). */
-        acresNeeded += acresNeeded * (100 - errorPct) / 100;
-        int maxSell = aPlayer->land / 10;  /* Never sell more than 10% */
+        int maxSell = aPlayer->land / 20;  /* Never sell more than 5% */
         if (acresNeeded > maxSell)
             acresNeeded = maxSell;
         SellLandToBarbarians(aPlayer, acresNeeded);
@@ -355,6 +380,21 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     float avgDiplomacy = (livingCount > 0)
                        ? aggregateDiplomacy / livingCount : 0.0f;
     int gunsPct = 50 - static_cast<int>(avgDiplomacy * 30.0f);
+
+    /* Power disparity pushes toward guns even with friendly diplomacy.
+     * If any player has 2x+ our power, we need to arm up regardless. */
+    float myPower = ComputePlayerPower(aPlayer);
+    float maxEnvy = 0.0f;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == pi || playerList[i].dead)
+            continue;
+        float ratio = ComputePlayerPower(&playerList[i]) / myPower;
+        if (ratio - 1.0f > maxEnvy) maxEnvy = ratio - 1.0f;
+    }
+    /* Each 1.0 of power ratio above 1.0 adds ~15% to guns budget. */
+    gunsPct += static_cast<int>(maxEnvy * 15.0f);
+
     if (gunsPct < 20) gunsPct = 20;
     if (gunsPct > 80) gunsPct = 80;
 
@@ -372,8 +412,8 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
         /* Determine which constraint is limiting troop recruitment. */
         int totalPeople = aPlayer->serfCount + aPlayer->merchantCount
                           + aPlayer->nobleCount;
-        int noblesCap = 20 * aPlayer->nobleCount;
-        float equipRatio = 0.05f + 0.015f * aPlayer->foundryCount;
+        int noblesCap = NOBLE_LEADERSHIP * aPlayer->nobleCount;
+        float equipRatio = EQUIP_RATIO_BASE + EQUIP_RATIO_PER_FOUNDRY * aPlayer->foundryCount;
         int equipCap = static_cast<int>(equipRatio * totalPeople);
 
         /* Buy palaces if noble leadership is the bottleneck. */
@@ -662,8 +702,8 @@ void Machiavelli::manageGrainTrade(Player *aPlayer)
     CPUStrategy::manageGrainTrade(aPlayer);
 
     /*
-     * ARBITRAGE: scan the market for grain priced below 2.0 and buy it
-     * to relist at a profit.  Only if we have treasury to spare.
+     * ARBITRAGE: scan the market for grain priced below 2x base price
+     * and buy it to relist at a profit.  Only if we have treasury to spare.
      */
     if (aPlayer->treasury > 3 * COST_MARKETPLACE)
     {
@@ -673,13 +713,14 @@ void Machiavelli::manageGrainTrade(Player *aPlayer)
             if (seller == aPlayer || seller->dead || seller->grainForSale <= 0)
                 continue;
 
-            /* Buy grain priced below 2.0 and relist at 3.0+. */
-            if (seller->grainPrice < 2.0)
+            /* Buy grain priced below 2x base price and relist higher. */
+            if (seller->grainPrice < GRAIN_PRICE_BASE * 2.0f)
             {
                 /* Spend up to 20% of treasury on arbitrage. */
                 int budget = aPlayer->treasury / 5;
+                float markupFactor = 1.0f - GRAIN_MARKUP;
                 int canBuy = static_cast<int>(
-                    (static_cast<float>(budget) * 0.9) / seller->grainPrice);
+                    (static_cast<float>(budget) * markupFactor) / seller->grainPrice);
                 if (canBuy > seller->grainForSale)
                     canBuy = seller->grainForSale;
                 if (canBuy > 0)
@@ -690,8 +731,9 @@ void Machiavelli::manageGrainTrade(Player *aPlayer)
                     if (bought > 0)
                     {
                         /* Relist at a 50-100% markup. */
-                        float relistPrice = seller->grainPrice * 2.0;
-                        if (relistPrice < 3.0) relistPrice = 3.0;
+                        float relistPrice = seller->grainPrice * 2.0f;
+                        if (relistPrice < GRAIN_PRICE_BASE * 3.0f)
+                            relistPrice = GRAIN_PRICE_BASE * 3.0f;
                         ListGrainForSale(aPlayer, bought, relistPrice);
                     }
                 }

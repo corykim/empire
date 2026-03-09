@@ -37,6 +37,10 @@ static void SellGrain(Player *aPlayer);
 
 static void SellLand(Player *aPlayer);
 
+static void WithdrawGrainScreen(Player *aPlayer);
+
+static void RepriceGrainScreen(Player *aPlayer);
+
 static void FeedCountry(Player *aPlayer);
 
 static void UpdateTreasuryDisplay(Player *aPlayer);
@@ -126,7 +130,7 @@ static void DrawGrainScreen(Player *aPlayer)
         if (player->grainForSale > 0)
         {
             anyGrainForSale = true;
-            printw("  %d  %-18s %6s    %5.2f\n",
+            printw("  %d  %-18s %6s    %6.4f\n",
                    player->number,
                    player->country->name,
                    FmtNum(player->grainForSale),
@@ -181,7 +185,10 @@ static void TradeGrainAndLand(Player *aPlayer)
 
         /* Display options. */
         CLEAR_MSG_AREA();
-        printw("1) Buy Grain  2) Sell Grain  3) Sell Land  0) Done? ");
+        if (aPlayer->grainForSale > 0)
+            printw("1) Buy  2) Sell  3) Land  4) Withdraw  5) Reprice  0) Done? ");
+        else
+            printw("1) Buy Grain  2) Sell Grain  3) Sell Land  0) Done? ");
         getnstr(input, sizeof(input));
 
         /* Parse command. */
@@ -201,6 +208,14 @@ static void TradeGrainAndLand(Player *aPlayer)
 
             case 3 :
                 SellLand(aPlayer);
+                break;
+
+            case 4 :
+                WithdrawGrainScreen(aPlayer);
+                break;
+
+            case 5 :
+                RepriceGrainScreen(aPlayer);
                 break;
 
             default :
@@ -261,7 +276,7 @@ static void BuyGrain(Player *aPlayer)
 
     /* Get the amount of grain to buy. */
     validGrain = false;
-    maxGrain = (static_cast<float>(aPlayer->treasury) * 0.9) / seller->grainPrice;
+    maxGrain = (static_cast<float>(aPlayer->treasury) * (1.0f - GRAIN_MARKUP)) / seller->grainPrice;
     do
     {
         /* Get the number of bushels to purchase. */
@@ -270,9 +285,8 @@ static void BuyGrain(Player *aPlayer)
         getnstr(input, sizeof(input));
         grain = ParseNum(input);
 
-        /* Compute the total grain purchase price, including marketplace */
-        /* markup.                                                       */
-        totalPrice = (static_cast<float>(grain) * seller->grainPrice) / 0.9;
+        /* Compute the total grain purchase price, including marketplace markup. */
+        totalPrice = (static_cast<float>(grain) * seller->grainPrice) / (1.0f - GRAIN_MARKUP);
 
         if (grain > seller->grainForSale)
         {
@@ -338,7 +352,7 @@ static void SellGrain(Player *aPlayer)
         printw("What will be the price per bushel? ");
         getnstr(input, sizeof(input));
         grainPrice = strtod(input, nullptr);
-        if (grainPrice > 15.0)
+        if (grainPrice > GRAIN_PRICE_MAX)
         {
             ShowMessage("Be reasonable . . .even gold costs less than that!");
         }
@@ -371,8 +385,8 @@ static void SellLand(Player *aPlayer)
     {
         /* Display the price per acre. */
         CLEAR_MSG_AREA();
-        ShowMessage("The barbarians will give you 2 %s per acre",
-                    aPlayer->country->currency);
+        ShowMessage("The barbarians will give you %d %s per acre",
+                    static_cast<int>(LAND_SELL_PRICE), aPlayer->country->currency);
 
         /* Get the number of acres to sell. */
         CLEAR_MSG_AREA();
@@ -384,7 +398,7 @@ static void SellLand(Player *aPlayer)
         {
             validLandToSell = false;
         }
-        else if (static_cast<float>(landToSell) <= (0.95 * static_cast<float>(aPlayer->land)))
+        else if (static_cast<float>(landToSell) <= (LAND_MAX_SELL_PCT * static_cast<float>(aPlayer->land)))
         {
             validLandToSell = true;
         }
@@ -397,6 +411,92 @@ static void SellLand(Player *aPlayer)
     /* Sell land using shared function. */
     SellLandToBarbarians(aPlayer, landToSell);
     UpdateTreasuryDisplay(aPlayer);
+}
+
+
+/*
+ * Withdraw grain from the market for the player specified by aPlayer.
+ *
+ *   aPlayer                Player.
+ */
+
+static void WithdrawGrainScreen(Player *aPlayer)
+{
+    int   grainToWithdraw;
+    char  input[80];
+    bool  valid;
+
+    if (aPlayer->grainForSale <= 0)
+    {
+        ShowMessage("You have no grain on the market!");
+        return;
+    }
+
+    valid = false;
+    do
+    {
+        CLEAR_MSG_AREA();
+        printw("Withdraw how many of your %s listed bushels (%d%% penalty)? ",
+               FmtNum(aPlayer->grainForSale),
+               static_cast<int>(GRAIN_WITHDRAW_FEE * 100));
+        getnstr(input, sizeof(input));
+        grainToWithdraw = ParseNum(input);
+        if (grainToWithdraw <= 0)
+        {
+            return;
+        }
+        else if (grainToWithdraw > aPlayer->grainForSale)
+        {
+            ShowMessage("You only have %s bushels on the market!",
+                        FmtNum(aPlayer->grainForSale));
+        }
+        else
+        {
+            valid = true;
+        }
+    } while (!valid);
+
+    int returned = WithdrawGrain(aPlayer, grainToWithdraw);
+    CLEAR_MSG_AREA();
+    ShowMessage("Withdrew %s bushels (%s lost to spoilage)",
+                FmtNum(returned), FmtNum(grainToWithdraw - returned));
+}
+
+
+/*
+ * Reprice grain on the market for the player specified by aPlayer.
+ *
+ *   aPlayer                Player.
+ */
+
+static void RepriceGrainScreen(Player *aPlayer)
+{
+    float newPrice;
+    char  input[80];
+
+    if (aPlayer->grainForSale <= 0)
+    {
+        ShowMessage("You have no grain on the market!");
+        return;
+    }
+
+    CLEAR_MSG_AREA();
+    printw("Current price: %6.4f.  New price per bushel? ",
+           aPlayer->grainPrice);
+    getnstr(input, sizeof(input));
+    newPrice = strtod(input, nullptr);
+
+    if (newPrice <= 0.0)
+        return;
+    if (newPrice > GRAIN_PRICE_MAX)
+    {
+        ShowMessage("Be reasonable . . .even gold costs less than that!");
+        return;
+    }
+
+    aPlayer->grainPrice = newPrice;
+    GameLog("  Repriced grain to %.4f (%d bushels)\n",
+            newPrice, aPlayer->grainForSale);
 }
 
 

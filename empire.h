@@ -27,8 +27,10 @@
 constexpr int COUNTRY_COUNT       = 6;
 constexpr int TITLE_COUNT         = 4;
 constexpr int DIFFICULTY_COUNT    = 5;
-constexpr int DELAY_TIME          = 2000000;
-constexpr int SERF_EFFICIENCY     = 5;
+
+/* DELAY_TIME and SERF_EFFICIENCY are defined in economy.h with all other
+ * game-wide constants.  COUNTRY_COUNT, TITLE_COUNT, and DIFFICULTY_COUNT
+ * remain here because they're used in struct/array definitions below. */
 
 
 /*------------------------------------------------------------------------------
