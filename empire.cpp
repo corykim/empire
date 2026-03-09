@@ -166,6 +166,7 @@ int barbarianLand = 6000;
 int gameOver = false;
 int difficulty = 2;
 int treatyYears = 3;
+int marketGrainHistory[3] = {0, 0, 0};
 bool omniscient = false;
 bool fastMode = false;
 
@@ -315,6 +316,15 @@ int main(int argc, char *argv[])
         /* Stop if game over. */
         if (gameOver)
             break;
+
+        /* Track market grain inventory for CPU pricing trends (3-year rolling). */
+        {
+            marketGrainHistory[2] = marketGrainHistory[1];
+            marketGrainHistory[1] = marketGrainHistory[0];
+            marketGrainHistory[0] = 0;
+            for (i = 0; i < COUNTRY_COUNT; i++)
+                marketGrainHistory[0] += playerList[i].grainForSale;
+        }
 
         /* Log end-of-round stats and diplomacy. */
         LogRoundSummary();
@@ -603,6 +613,8 @@ static void GameSetupScreen()
         player->grainForSale = 0;
         player->grainPrice = 0.0;
         player->attackedTargets = 0;
+        for (int j = 0; j < COUNTRY_COUNT; j++)
+            player->landTakenFrom[j] = 0;
 
         /* Per-CPU difficulty: base ± 0.5, clamped to [0, 4]. */
         if (!player->human)
@@ -966,7 +978,7 @@ static void CPUGrainPhase(Player *aPlayer)
      * to attract immigrants.  Only overfeed if grain after feeding
      * still exceeds the safe reserve.
      */
-    int optimalOverfeed = 190;
+    int optimalOverfeed = CPU_OVERFEED_PCT;
     int errorRange = ComputeErrorPct(aPlayer->cpuDifficulty);
     int overfeedPct = optimalOverfeed + RandRange(2 * errorRange + 1)
                       - errorRange - 1;

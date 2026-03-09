@@ -214,14 +214,14 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 
 **How diplomacy changes:**
 - **Peace**: Each turn you don't attack, all CPUs increase diplomacy toward you by a small amount. Over many turns, this builds up to moderate goodwill (~0.5).
-- **Direct attack**: If you attack a CPU, their diplomacy toward you drops to -1.0 (maximum hostility).
+- **Direct attack**: If you attack a CPU, their diplomacy toward you drops proportional to the land you captured — a small raid barely dents relations, but taking 20% or more of their land triggers the maximum penalty. Diplomacy scores are clamped to the range [-2, +2].
 - **Third-party effects**: If you attack a country that a CPU dislikes, that CPU likes you more. If you attack someone they like, they like you less — especially if the target is militarily weak.
 - **Decay**: All scores drift toward zero over time. Old grudges fade; old friendships erode.
 - **Treaty period**: Peace bonuses don't accumulate during the treaty period — peace is mandatory, so it earns no goodwill.
 
 **How diplomacy affects CPU behavior:**
 - **Target selection**: CPUs are most likely to attack the player with the lowest score. Positive scores make you an unlikely target; negative scores paint a bullseye.
-- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution — CPUs will send suicide raids to weaken a dominant player regardless of the odds.
+- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution — CPUs will send raids to weaken a dominant player regardless of the odds (but never fewer than 10 soldiers).
 - **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards).
 - **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies.
 - **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be.

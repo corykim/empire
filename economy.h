@@ -155,6 +155,9 @@ constexpr int   CASUALTY_THRESHOLD_HIGH = 1000; /* Threshold for large armies */
 constexpr int   CASUALTY_DIV_HIGH     = 5;      /* Kill rate: large armies */
 constexpr int   SACK_THRESHOLD_DIV    = 3;      /* Sack if capture > 1/N of land */
 
+/* CPU behavior tuning (shared across files). */
+constexpr int   CPU_OVERFEED_PCT         = 190;    /* CPU target people overfeed percentage */
+
 /* Diplomacy. */
 constexpr float DIPLOMACY_INIT_RANGE       = 0.25f;
 constexpr float DIPLOMACY_PEACE_BONUS      = 0.03f;
@@ -164,6 +167,14 @@ constexpr float DIPLOMACY_THIRD_PARTY_SCALE = 1.0f;
 constexpr float DIPLOMACY_WEAKNESS_SCALE   = 1.0f;
 constexpr float DIPLOMACY_ENVY_SCALE      = 1.5f;
 constexpr float DIPLOMACY_RESERVE_SCALE    = 0.5f;
+constexpr float DIPLOMACY_CLAMP            = 2.0f;  /* Max absolute diplomacy value */
+
+inline float ClampDiplomacy(float d)
+{
+    if (d > DIPLOMACY_CLAMP) return DIPLOMACY_CLAMP;
+    if (d < -DIPLOMACY_CLAMP) return -DIPLOMACY_CLAMP;
+    return d;
+}
 
 
 /*------------------------------------------------------------------------------

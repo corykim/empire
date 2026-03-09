@@ -291,7 +291,11 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
 {
     aPlayer->attackCount++;
     if (aTargetPlayer != nullptr)
-        aPlayer->attackedTargets |= (1 << (aTargetPlayer - playerList));
+    {
+        int ti = aTargetPlayer - playerList;
+        aPlayer->attackedTargets |= (1 << ti);
+        aPlayer->landTakenFrom[ti] += aBattle->landCaptured;
+    }
     int soldiersLost = aBattle->soldiersToAttackCount - aBattle->soldierCount;
     aPlayer->soldierCount -= soldiersLost;
     if (aTargetPlayer != nullptr)

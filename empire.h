@@ -150,6 +150,7 @@ struct Player
     int                     diedStarvation;
     int                     attackCount;
     int                     attackedTargets;
+    int                     landTakenFrom[COUNTRY_COUNT];
     int                     desiredTroops;
     float                   cpuDifficulty;
     int                     strategyIndex;
@@ -236,6 +237,7 @@ extern int barbarianLand;
 extern int done;
 extern int difficulty;
 extern int treatyYears;
+extern int marketGrainHistory[3];  /* Rolling 3-year market grain inventory */
 extern bool omniscient;
 extern bool fastMode;
 

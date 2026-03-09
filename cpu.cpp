@@ -16,6 +16,13 @@
 #include "cpu_strategy.h"
 
 
+/* CPU behavior constants (used only in this file). */
+constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
+constexpr int   CPU_LAND_SURPLUS_MULT    = 8;      /* Only sell land if land > pop * this */
+constexpr int   CPU_ACRES_PER_GRAIN_MILL = 2000;   /* Farmland acres per grain mill needed */
+constexpr float CPU_GRAIN_SCARCITY_MAX   = 2.0f;   /* Max grain price multiplier when scarce */
+
+
 /*------------------------------------------------------------------------------
  *
  * Strategy instances.
@@ -207,6 +214,77 @@ int CPUStrategy::deviate(int optimal, int maxVal)
     return deviate(optimal, maxVal, errorPct);
 }
 
+/*
+ * Compute a target grain price based on:
+ *   - Current market supply vs total demand (scarcity)
+ *   - 3-year rolling inventory trend (rising → lower prices, falling → higher)
+ *   - Worst-case demand estimate (what if harvest is bad?)
+ *   - Random noise (even L5 isn't perfect)
+ */
+
+float CPUStrategy::ComputeGrainTargetPrice(Player *aPlayer, int effError)
+{
+    /* Current market supply and total demand across all players. */
+    int totalMarketGrain = 0;
+    int totalDemand = 0;
+    int totalWorstDemand = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead)
+        {
+            totalMarketGrain += playerList[i].grainForSale;
+            int need = playerList[i].peopleGrainNeed + playerList[i].armyGrainNeed;
+            totalDemand += need;
+            /* Worst case: need minus worst harvest. */
+            int worstHarv = ComputeWorstCaseHarvest(&playerList[i]);
+            int shortfall = need - worstHarv;
+            if (shortfall > 0) totalWorstDemand += shortfall;
+        }
+    }
+
+    /* Scarcity: supply vs worst-case demand. */
+    float scarcity = (totalWorstDemand > 0)
+        ? static_cast<float>(totalMarketGrain) / static_cast<float>(totalWorstDemand)
+        : 2.0f;
+    /* scarcity < 1 → not enough grain on market to cover a bad year. */
+    float scarcityMult = (scarcity < 1.0f)
+        ? CPU_GRAIN_SCARCITY_MAX - (CPU_GRAIN_SCARCITY_MAX - 1.0f) * scarcity
+        : 1.0f / scarcity;
+    if (scarcityMult < 0.5f) scarcityMult = 0.5f;
+    if (scarcityMult > CPU_GRAIN_SCARCITY_MAX) scarcityMult = CPU_GRAIN_SCARCITY_MAX;
+
+    /* Trend: 3-year rolling average vs current inventory. */
+    float trendMult = 1.0f;
+    int avgHistory = (marketGrainHistory[0] + marketGrainHistory[1]
+                      + marketGrainHistory[2]) / 3;
+    if (avgHistory > 0 && totalMarketGrain > 0)
+    {
+        float trend = static_cast<float>(totalMarketGrain)
+                      / static_cast<float>(avgHistory);
+        /* trend < 1: inventory shrinking → prices should rise.
+         * trend > 1: inventory growing → prices should fall. */
+        trendMult = 1.0f / trend;
+        if (trendMult < 0.5f) trendMult = 0.5f;
+        if (trendMult > 2.0f) trendMult = 2.0f;
+    }
+
+    float price = GRAIN_PRICE_BASE * scarcityMult * trendMult;
+
+    /* Random noise: ±5-15% based on difficulty (L5 ≈ ±5%, L1 ≈ ±15%). */
+    int noisePct = 5 + effError / 5;
+    float noise = 1.0f + static_cast<float>(RandRange(2 * noisePct + 1)
+                                            - noisePct - 1) / 100.0f;
+    price *= noise;
+
+    if (price < GRAIN_PRICE_BASE * 0.25f) price = GRAIN_PRICE_BASE * 0.25f;
+    if (price > GRAIN_PRICE_MAX) price = GRAIN_PRICE_MAX;
+
+    GameLog("  Target price: %.4f (scarcity=%.2f trend=%.2f noise=%.0f%%)\n",
+            price, scarcityMult, trendMult, (noise - 1.0f) * 100.0f);
+    return price;
+}
+
+
 int CPUStrategy::deviate(int optimal, int maxVal, int err)
 {
     int range = maxVal * err / 100;
@@ -232,6 +310,8 @@ int CPUStrategy::deviate(int optimal, int maxVal, int err)
 void CPUStrategy::manageGrainTrade(Player *aPlayer)
 {
     int totalNeed = aPlayer->peopleGrainNeed + aPlayer->armyGrainNeed;
+    int overfeedNeed = aPlayer->peopleGrainNeed * CPU_OVERFEED_PCT / 100
+                       + aPlayer->armyGrainNeed;
     int effError = ComputeErrorPct(aPlayer->cpuDifficulty);
 
     /*
@@ -242,13 +322,22 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
         return;
 
     /*
-     * BUY GRAIN if we can't feed our people and army.
-     * Look for the cheapest seller on the market.
+     * WITHDRAW grain from our own market listing when starving.
+     * Cheaper than buying (only GRAIN_WITHDRAW_FEE spoilage).
+     */
+    if (aPlayer->grain < totalNeed && aPlayer->grainForSale > 0)
+    {
+        int deficit = totalNeed - aPlayer->grain;
+        int withdrawAmount = MIN(deficit * 2, aPlayer->grainForSale);
+        WithdrawGrain(aPlayer, withdrawAmount);
+    }
+
+    /*
+     * BUY GRAIN if we still can't feed our people and army.
      */
     if (aPlayer->grain < totalNeed)
     {
         int deficit = totalNeed - aPlayer->grain;
-        /* Find cheapest seller. */
         Player *cheapest = nullptr;
         for (int i = 0; i < COUNTRY_COUNT; i++)
         {
@@ -257,71 +346,56 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
                 continue;
             if (cheapest == nullptr ||
                 p->grainPrice < cheapest->grainPrice)
-            {
                 cheapest = p;
-            }
         }
         if (cheapest != nullptr)
             TradeGrain(aPlayer, cheapest, deficit);
     }
 
     /*
-     * SELL SURPLUS GRAIN if we have much more than we need.
-     * Reserve enough to survive a worst-case year.
+     * SELL SURPLUS GRAIN — only what exceeds the safe reserve including
+     * the overfeed budget.  The reserve accounts for worst-case weather.
      */
     int reserve = ComputeSafeGrainReserve(aPlayer);
-    /* Smarter CPUs keep tighter reserves; dumber ones hoard more. */
     reserve = reserve * deviate(110, 160, effError) / 100;
+    if (reserve < overfeedNeed) reserve = overfeedNeed;
     int surplus = aPlayer->grain - reserve;
     if (surplus > 500)
     {
-        /* Sell a fraction of the surplus. */
         int sellAmount = surplus * (100 - effError) / 100;
         if (sellAmount > 100)
         {
-            /* Price competitively: match existing market prices if any,
-             * otherwise use base price derived from land value. */
-            float marketPrice = 0.0f;
-            int sellers = 0;
-            for (int i = 0; i < COUNTRY_COUNT; i++)
-            {
-                if (&playerList[i] != aPlayer && !playerList[i].dead
-                    && playerList[i].grainForSale > 0)
-                {
-                    marketPrice += playerList[i].grainPrice;
-                    sellers++;
-                }
-            }
-            float price;
-            if (sellers > 0)
-            {
-                /* Match the market average, with slight random deviation. */
-                price = (marketPrice / sellers)
-                        * (0.95f + static_cast<float>(RandRange(11)) / 100.0f);
-            }
-            else
-            {
-                /* No market: base price from land economics. */
-                price = GRAIN_PRICE_BASE
-                        + static_cast<float>(deviate(2, 4, effError)) / 1000.0f;
-            }
-            if (price < GRAIN_PRICE_BASE) price = GRAIN_PRICE_BASE;
+            float price = ComputeGrainTargetPrice(aPlayer, effError);
             ListGrainForSale(aPlayer, sellAmount, price);
         }
     }
 
     /*
+     * REPRICE existing grain listing based on market trends.
+     */
+    if (aPlayer->grainForSale > 0)
+    {
+        float targetPrice = ComputeGrainTargetPrice(aPlayer, effError);
+        if (targetPrice > aPlayer->grainPrice * 1.05f ||
+            targetPrice < aPlayer->grainPrice * 0.95f)
+        {
+            aPlayer->grainPrice = targetPrice;
+            GameLog("  Repriced grain to %.4f\n", targetPrice);
+        }
+    }
+
+    /*
      * SELL LAND only as a last resort when treasury is empty and we have
-     * far more land than we can farm.  Land is critical for long-term
-     * growth — selling it early cripples the economy.
+     * far more land than we can farm.
      */
     int population = aPlayer->serfCount + aPlayer->merchantCount
                      + aPlayer->nobleCount + aPlayer->soldierCount;
-    if (aPlayer->treasury < COST_SOLDIER && aPlayer->land > population * 5)
+    if (aPlayer->treasury < COST_SOLDIER &&
+        aPlayer->land > population * CPU_LAND_SURPLUS_MULT)
     {
-        /* Sell just enough to cover immediate needs. */
-        int acresNeeded = (COST_MARKETPLACE - aPlayer->treasury + 1) / 2;
-        int maxSell = aPlayer->land / 20;  /* Never sell more than 5% */
+        int acresNeeded = (COST_MARKETPLACE - aPlayer->treasury + 1)
+                          / static_cast<int>(LAND_SELL_PRICE);
+        int maxSell = aPlayer->land / 20;
         if (acresNeeded > maxSell)
             acresNeeded = maxSell;
         SellLandToBarbarians(aPlayer, acresNeeded);
@@ -521,13 +595,26 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     if (boughtAnyPalaces)
         ApplyPalaceBonus(aPlayer);
 
-    /* Grain mills. */
-    desired = MIN(aPlayer->treasury / COST_GRAIN_MILL, RandRange(2));
-    bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
-                                desired, COST_GRAIN_MILL);
-    if (bought > 0)
-        GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
-                bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
+    /* Grain mills — only if we had a grain surplus and proportional to farmland. */
+    if (aPlayer->grainHarvest > aPlayer->peopleGrainNeed + aPlayer->armyGrainNeed)
+    {
+        int usableLand = aPlayer->land - aPlayer->serfCount
+                         - 2 * aPlayer->nobleCount - aPlayer->merchantCount
+                         - 2 * aPlayer->soldierCount - aPlayer->palaceCount;
+        if (usableLand < 0) usableLand = 0;
+        int millsWanted = usableLand / CPU_ACRES_PER_GRAIN_MILL;
+        int millDeficit = millsWanted - aPlayer->grainMillCount;
+        if (millDeficit > 0)
+        {
+            desired = MIN(MIN(aPlayer->treasury / COST_GRAIN_MILL, millDeficit),
+                          RandRange(2));
+            bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
+                                        desired, COST_GRAIN_MILL);
+            if (bought > 0)
+                GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
+                        bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
+        }
+    }
 
     /* Foundries — economic pass. */
     desired = MIN(aPlayer->treasury / COST_FOUNDRY, RandRange(2));
@@ -578,7 +665,9 @@ int VillageFool::selectTarget(Player *aPlayer, int *livingIndices,
 
 int VillageFool::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
 {
-    return RandRange(aPlayer->soldierCount);
+    int count = RandRange(aPlayer->soldierCount);
+    if (count < CPU_MIN_ATTACK_FORCE) return 0;
+    return count;
 }
 
 void VillageFool::manageInvestments(Player *aPlayer)
@@ -610,8 +699,10 @@ int LandedPeasant::selectTarget(Player *aPlayer, int *livingIndices,
 
 int LandedPeasant::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
 {
-    return (aPlayer->soldierCount * 3 / 10)
-           + RandRange(aPlayer->soldierCount * 3 / 10);
+    int count = (aPlayer->soldierCount * 3 / 10)
+                + RandRange(aPlayer->soldierCount * 3 / 10);
+    if (count < CPU_MIN_ATTACK_FORCE) return 0;
+    return count;
 }
 
 void LandedPeasant::manageInvestments(Player *aPlayer)
@@ -641,8 +732,10 @@ int MinorNoble::selectTarget(Player *aPlayer, int *livingIndices,
 
 int MinorNoble::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
 {
-    return (aPlayer->soldierCount * 4 / 10)
-           + RandRange(aPlayer->soldierCount * 3 / 10);
+    int count = (aPlayer->soldierCount * 4 / 10)
+                + RandRange(aPlayer->soldierCount * 3 / 10);
+    if (count < CPU_MIN_ATTACK_FORCE) return 0;
+    return count;
 }
 
 void MinorNoble::manageInvestments(Player *aPlayer)
@@ -673,6 +766,7 @@ int RoyalAdvisor::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
                 + RandRange(aPlayer->soldierCount * 25 / 100);
     if (count > (aPlayer->soldierCount * 3 / 4))
         count = aPlayer->soldierCount * 3 / 4;
+    if (count < CPU_MIN_ATTACK_FORCE) return 0;
     return count;
 }
 
@@ -719,6 +813,7 @@ int Machiavelli::chooseSoldiersToSend(Player *aPlayer, Player *aTarget)
     {
         count = aPlayer->soldierCount / 2;
     }
+    if (count < CPU_MIN_ATTACK_FORCE) return 0;
     return count;
 }
 

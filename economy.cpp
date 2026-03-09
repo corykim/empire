@@ -111,7 +111,8 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                     continue;
 
                 float old = playerList[i].diplomacy[pi];
-                playerList[i].diplomacy[pi] += DIPLOMACY_PEACE_BONUS;
+                playerList[i].diplomacy[pi] = ClampDiplomacy(
+                    playerList[i].diplomacy[pi] + DIPLOMACY_PEACE_BONUS);
                 GameLog("  Diplomacy peace: %s→%s %.3f→%.3f\n",
                         playerList[i].country->name, aPlayer->country->name,
                         old, playerList[i].diplomacy[pi]);
@@ -136,8 +137,19 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
 
                 if (t == i)
                 {
-                    /* Attacked me — diplomacy drops to floor. */
-                    playerList[i].diplomacy[pi] = DIPLOMACY_ATTACKED_ME;
+                    /* Attacked me — penalty proportional to land taken.
+                     * 20%+ of land → full penalty (4.0 = entire clamp range).
+                     * Less → proportional. */
+                    int landBefore = playerList[i].land
+                                     + aPlayer->landTakenFrom[i];
+                    float landPct = (landBefore > 0)
+                        ? static_cast<float>(aPlayer->landTakenFrom[i])
+                          / static_cast<float>(landBefore)
+                        : 1.0f;
+                    float penalty = (landPct / 0.20f) * (2.0f * DIPLOMACY_CLAMP);
+                    if (penalty > 2.0f * DIPLOMACY_CLAMP)
+                        penalty = 2.0f * DIPLOMACY_CLAMP;
+                    playerList[i].diplomacy[pi] -= penalty;
                 }
                 else
                 {
@@ -146,6 +158,8 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                 }
             }
 
+            playerList[i].diplomacy[pi] = ClampDiplomacy(
+                playerList[i].diplomacy[pi]);
             if (playerList[i].diplomacy[pi] != old)
             {
                 GameLog("  Diplomacy attack: %s→%s %.3f→%.3f\n",
@@ -157,6 +171,8 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
 
     /* Reset attacked targets for next turn. */
     aPlayer->attackedTargets = 0;
+    for (int j = 0; j < COUNTRY_COUNT; j++)
+        aPlayer->landTakenFrom[j] = 0;
 }
 
 
@@ -455,12 +471,14 @@ int ComputeWorstCaseHarvest(Player *aPlayer)
 
 int ComputeSafeGrainReserve(Player *aPlayer)
 {
-    int totalNeed = aPlayer->armyGrainNeed + aPlayer->peopleGrainNeed;
+    /* Include overfeed target (190%) for people, not just 100%. */
+    int overfeedNeed = aPlayer->peopleGrainNeed * CPU_OVERFEED_PCT / 100
+                       + aPlayer->armyGrainNeed;
     int worstHarvest = ComputeWorstCaseHarvest(aPlayer);
-    int grainNeededFromReserve = totalNeed - worstHarvest;
+    int grainNeededFromReserve = overfeedNeed - worstHarvest;
     if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
     int reserve = static_cast<int>(grainNeededFromReserve / 0.70f);
-    if (reserve < totalNeed) reserve = totalNeed;
+    if (reserve < overfeedNeed) reserve = overfeedNeed;
     return reserve;
 }
 

@@ -84,11 +84,12 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - **Init**: Random values in `[-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]` (±0.25)
 - **Decay**: All CPU scores decay 10% toward zero at the start of each player's turn
 - **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years)
-- **Direct attack**: Target sets score to -1.0 toward attacker
+- **Direct attack**: Penalty proportional to land taken: `(landPct / 0.20) × 4.0`, capped at 4.0. Small raids (1%) cost -0.2; taking 20%+ costs the full -4.0. Tracked via `Player::landTakenFrom[]`.
 - **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it (amplified by target weakness × attacker strength)
+- **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`.
 
-**Tuning constants** (all `constexpr float` in `economy.h`):
-`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_ATTACKED_ME`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`
+**Tuning constants** (in `economy.h`):
+`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`
 
 **Key helpers:**
 - `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks

@@ -80,9 +80,10 @@ public:
 
 protected:
     /* Shared helpers available to all derived classes. */
-    int  deviate(int optimal, int maxVal);          /* Uses this->errorPct */
-    int  deviate(int optimal, int maxVal, int err); /* Uses explicit error */
-    void cpuInvest(Player *aPlayer);
+    int   deviate(int optimal, int maxVal);          /* Uses this->errorPct */
+    int   deviate(int optimal, int maxVal, int err); /* Uses explicit error */
+    float ComputeGrainTargetPrice(Player *aPlayer, int effError);
+    void  cpuInvest(Player *aPlayer);
 };
 
 
