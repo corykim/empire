@@ -268,7 +268,31 @@ float CPUStrategy::ComputeGrainTargetPrice(Player *aPlayer, int effError)
         if (trendMult > 2.0f) trendMult = 2.0f;
     }
 
-    float price = GRAIN_PRICE_BASE * scarcityMult * trendMult;
+    /* Harvest quality: compare actual total harvest vs total demand.
+     * Good harvest (surplus) → lower prices; bad harvest → higher prices.
+     * Uses aggregate across all living players, not just this one. */
+    float harvestMult = 1.0f;
+    {
+        int totalHarvest = 0;
+        for (int i = 0; i < COUNTRY_COUNT; i++)
+        {
+            if (!playerList[i].dead)
+                totalHarvest += playerList[i].grainHarvest;
+        }
+        if (totalDemand > 0)
+        {
+            float harvestRatio = static_cast<float>(totalHarvest)
+                                 / static_cast<float>(totalDemand);
+            /* ratio 2.0+ (bumper crop) → mult 0.5 (half price).
+             * ratio 1.0 (break even) → mult 1.0.
+             * ratio 0.5 (famine) → mult 1.5. */
+            harvestMult = 1.0f / harvestRatio;
+            if (harvestMult < 0.5f) harvestMult = 0.5f;
+            if (harvestMult > 2.0f) harvestMult = 2.0f;
+        }
+    }
+
+    float price = GRAIN_PRICE_BASE * scarcityMult * trendMult * harvestMult;
 
     /* Random noise: ±5-15% based on difficulty (L5 ≈ ±5%, L1 ≈ ±15%). */
     int noisePct = 5 + effError / 5;
@@ -279,8 +303,8 @@ float CPUStrategy::ComputeGrainTargetPrice(Player *aPlayer, int effError)
     if (price < GRAIN_PRICE_BASE * 0.25f) price = GRAIN_PRICE_BASE * 0.25f;
     if (price > GRAIN_PRICE_MAX) price = GRAIN_PRICE_MAX;
 
-    GameLog("  Target price: %.4f (scarcity=%.2f trend=%.2f noise=%.0f%%)\n",
-            price, scarcityMult, trendMult, (noise - 1.0f) * 100.0f);
+    GameLog("  Target price: %.4f (scarcity=%.2f trend=%.2f harvest=%.2f noise=%.0f%%)\n",
+            price, scarcityMult, trendMult, harvestMult, (noise - 1.0f) * 100.0f);
     return price;
 }
 
