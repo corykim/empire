@@ -425,6 +425,8 @@ static void FeedCountry(Player *aPlayer)
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->armyGrainNeed;
+        else if (input[0] == '+')
+            grainToFeed = (aPlayer->armyGrainNeed * 3 + 1) / 2;
         else
             grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)
@@ -465,6 +467,10 @@ static void FeedCountry(Player *aPlayer)
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->peopleGrainNeed;
+        else if (strcmp(input, "++") == 0)
+            grainToFeed = aPlayer->peopleGrainNeed * 2;
+        else if (input[0] == '+')
+            grainToFeed = (aPlayer->peopleGrainNeed * 3 + 1) / 2;
         else
             grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)

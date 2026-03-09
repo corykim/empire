@@ -779,8 +779,19 @@ static void CPUGrainPhase(Player *aPlayer)
     /* Trade grain and land via the strategy. */
     cpuStrategies[difficulty]->manageGrainTrade(aPlayer);
 
-    /* CPU feeds army at the required amount. */
-    aPlayer->armyGrainFeed = MIN(aPlayer->armyGrainNeed, aPlayer->grain);
+    /* CPU feeds army.  Higher difficulties overfeed for army efficiency
+     * (level 4 = 125%, level 5 = 150%), as long as enough grain remains
+     * to cover 50% of the total feeding requirement (army + people). */
+    int armyOverfeedPct = 100 + 25 * MAX(0, difficulty - 2);
+    int armyFeedTarget = aPlayer->armyGrainNeed;
+    if (armyOverfeedPct > 100)
+    {
+        int overfedArmy = (aPlayer->armyGrainNeed * armyOverfeedPct + 99) / 100;
+        int totalNeed = aPlayer->armyGrainNeed + aPlayer->peopleGrainNeed;
+        if (aPlayer->grain - overfedArmy >= totalNeed / 2)
+            armyFeedTarget = overfedArmy;
+    }
+    aPlayer->armyGrainFeed = MIN(armyFeedTarget, aPlayer->grain);
     aPlayer->grain -= aPlayer->armyGrainFeed;
 
     /*

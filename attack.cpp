@@ -208,7 +208,7 @@ static void InitBattle(Battle *aBattle, Player *aPlayer)
     aBattle->soldierEfficiency = aPlayer->armyEfficiency;
     snprintf(aBattle->soldierLabel,
              sizeof(aBattle->soldierLabel),
-             "%s %s OF %s",
+             "%s %s of %s",
              aPlayer->title,
              aPlayer->name,
              aPlayer->country->name);
@@ -231,7 +231,7 @@ static void SetBattleTarget(Battle *aBattle, Player *aTargetPlayer)
         aBattle->targetLand = aTargetPlayer->land;
         snprintf(aBattle->targetSoldierLabel,
                  sizeof(aBattle->targetSoldierLabel),
-                 "%s %s OF %s",
+                 "%s %s of %s",
                  aTargetPlayer->title,
                  aTargetPlayer->name,
                  aTargetPlayer->country->name);

@@ -17,7 +17,7 @@ Your granary is the foundation of your country. Each year:
 - Rats eat 1-30% of your stored grain (random).
 - Your serfs harvest grain from available farmland. Better weather means a bigger harvest.
 - You can buy grain from other countries, sell grain on the market, or sell land to barbarians for quick cash.
-- You must feed your army and your people from your grain reserves. Press Enter to feed the required amount, or type a number to feed more or less.
+- You must feed your army and your people from your grain reserves. Press Enter to feed the required amount, type a number to feed more or less, or use shortcuts: `+` feeds 150% of the requirement, and `++` feeds 200% (people only).
 
 Underfeeding your people causes malnutrition and starvation. Overfeeding attracts immigrants. Underfeeding your army causes soldiers to starve and desert, and lowers their combat effectiveness.
 
@@ -163,7 +163,7 @@ Usable land is further capped by two constraints:
 - **Foundry equip ratio**: you can maintain soldiers up to (5% + 1.5% per foundry) of your total civilian population
 - **Noble leadership**: each noble commands up to 20 soldiers
 
-**Feeding**: Each soldier needs 8 bushels of grain per year. If you feed the army less than half their need, soldiers starve and desert. Army efficiency (combat effectiveness) ranges from 50% to 150% based on how well-fed they are.
+**Feeding**: Each soldier needs 8 bushels of grain per year. If you feed the army less than half their need, soldiers starve and desert. Army efficiency (combat effectiveness) ranges from 50% to 150% based on how well-fed they are. Use `+` at the feeding prompt to quickly feed 150% for maximum army efficiency.
 
 **Attacks per year**: Limited to (nobles / 4) + 1.
 
@@ -210,6 +210,6 @@ CPU players use the same economic rules as you. They buy and sell grain, set tax
 
 - **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases.
 - **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error, only attacks weaker players.
-- **Level 5 (Machiavelli)**: Near-optimal tax rates, efficient investment, targets human players when strong enough, and exploits arbitrage on the grain market — buying cheap grain and reselling at a profit.
+- **Level 5 (Machiavelli)**: Near-optimal tax rates, efficient investment, targets human players when strong enough, exploits arbitrage on the grain market, and overfeeds their army at 150% for maximum combat efficiency.
 
 All difficulty levels use identical economic formulas. The only difference is decision quality, not rules.
