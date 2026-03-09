@@ -442,6 +442,29 @@ void OptimizeTaxRates(Player *aPlayer)
 }
 
 
+int ComputeWorstCaseHarvest(Player *aPlayer)
+{
+    int harvest = static_cast<int>(
+        1 * (aPlayer->land - aPlayer->serfCount
+             - 2 * aPlayer->nobleCount - aPlayer->merchantCount
+             - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
+        * GRAIN_YIELD_MULT);
+    return (harvest > 0) ? harvest : 0;
+}
+
+
+int ComputeSafeGrainReserve(Player *aPlayer)
+{
+    int totalNeed = aPlayer->armyGrainNeed + aPlayer->peopleGrainNeed;
+    int worstHarvest = ComputeWorstCaseHarvest(aPlayer);
+    int grainNeededFromReserve = totalNeed - worstHarvest;
+    if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
+    int reserve = static_cast<int>(grainNeededFromReserve / 0.70f);
+    if (reserve < totalNeed) reserve = totalNeed;
+    return reserve;
+}
+
+
 void ComputeGrainPhase(Player *aPlayer)
 {
     int usableLand;

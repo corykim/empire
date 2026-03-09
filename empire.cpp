@@ -655,30 +655,41 @@ static void NewYearScreen()
  * Display a summary of all players.
  */
 
-static void LogRoundSummary()
+/*
+ * Sort player indices by power score descending.  Returns count.
+ * Includes all players (dead players sort to the bottom with power 0).
+ */
+
+static int SortPlayersByPower(int *indices)
 {
-    /* Sort players by power for log tables. */
-    int logOrder[COUNTRY_COUNT];
-    int logCount = 0;
+    int count = 0;
     for (int i = 0; i < COUNTRY_COUNT; i++)
-        logOrder[logCount++] = i;
-    for (int a = 0; a < logCount - 1; a++)
-        for (int b = a + 1; b < logCount; b++)
+        indices[count++] = i;
+    for (int a = 0; a < count - 1; a++)
+        for (int b = a + 1; b < count; b++)
         {
-            float pa = playerList[logOrder[a]].dead ? 0 :
-                       ComputePlayerPower(&playerList[logOrder[a]]);
-            float pb = playerList[logOrder[b]].dead ? 0 :
-                       ComputePlayerPower(&playerList[logOrder[b]]);
+            float pa = playerList[indices[a]].dead ? 0 :
+                       ComputePlayerPower(&playerList[indices[a]]);
+            float pb = playerList[indices[b]].dead ? 0 :
+                       ComputePlayerPower(&playerList[indices[b]]);
             if (pb > pa)
             {
-                int tmp = logOrder[a];
-                logOrder[a] = logOrder[b];
-                logOrder[b] = tmp;
+                int tmp = indices[a];
+                indices[a] = indices[b];
+                indices[b] = tmp;
             }
         }
+    return count;
+}
+
+
+static void LogRoundSummary()
+{
+    int logOrder[COUNTRY_COUNT];
+    int logCount = SortPlayersByPower(logOrder);
 
     /* Stats table. */
-    GameLog("--- End of Round Stats ---\n");
+    GameLog("\n\n--- End of Round Stats ---\n");
     GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
             "Country", "Land", "Grain", "Gold", "Serfs", "Merch",
             "Nob", "Army", "Mkt", "Mil", "Fnd", "Shp", "Pal",
@@ -746,29 +757,16 @@ static void SummaryScreen()
 
     UITitle("Summary");
 
-    /* Collect and sort living players by power score descending. */
+    /* Sort players by power score descending. */
     int sorted[COUNTRY_COUNT];
-    int livingCount = 0;
-    for (i = 0; i < COUNTRY_COUNT; i++)
-    {
-        if (playerList[i].dead)
-            continue;
-        sorted[livingCount++] = i;
-    }
-    for (int a = 0; a < livingCount - 1; a++)
-        for (int b = a + 1; b < livingCount; b++)
-            if (ComputePlayerPower(&playerList[sorted[b]]) >
-                ComputePlayerPower(&playerList[sorted[a]]))
-            {
-                int tmp = sorted[a];
-                sorted[a] = sorted[b];
-                sorted[b] = tmp;
-            }
+    int livingCount = SortPlayersByPower(sorted);
 
-    /* Draw each player — sorted, compact, two lines each. */
+    /* Draw each living player — sorted, compact, two lines each. */
     for (int s = 0; s < livingCount; s++)
     {
         player = &playerList[sorted[s]];
+        if (player->dead)
+            continue;
 
         /* Line 1: player identity + land. */
         UIColor(UIC_HEADING);
@@ -912,22 +910,10 @@ static void CPUGrainPhase(Player *aPlayer)
     /* Shared grain computation (rats, harvest, needs). */
     ComputeGrainPhase(aPlayer);
 
-    /* Compute a safe grain reserve: enough to survive a worst-case year.
-     *   reserve_after_rats + worstHarvest >= totalNeed
-     *   reserve * 0.70 + worstHarvest >= totalNeed
-     *   reserve >= (totalNeed - worstHarvest) / 0.70
-     */
+    /* Compute a safe grain reserve: enough to survive a worst-case year. */
     int totalNeed = aPlayer->armyGrainNeed + aPlayer->peopleGrainNeed;
-    int worstHarvest = static_cast<int>(
-        1 * (aPlayer->land - aPlayer->serfCount
-             - 2 * aPlayer->nobleCount - aPlayer->merchantCount
-             - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
-        * GRAIN_YIELD_MULT);
-    if (worstHarvest < 0) worstHarvest = 0;
-    int grainNeededFromReserve = totalNeed - worstHarvest;
-    if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
-    int safeReserve = static_cast<int>(grainNeededFromReserve / 0.70f);
-    if (safeReserve < totalNeed) safeReserve = totalNeed;
+    int worstHarvest = ComputeWorstCaseHarvest(aPlayer);
+    int safeReserve = ComputeSafeGrainReserve(aPlayer);
 
     /* Discount reserve if cheap grain is on the market. */
     int marketGrain = 0;

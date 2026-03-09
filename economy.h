@@ -335,6 +335,27 @@ int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax);
 void OptimizeTaxRates(Player *aPlayer);
 
 
+/*
+ * Compute the worst-case harvest for a player: weather=1, no seed/serf
+ * limits, just raw land minus occupied space times GRAIN_YIELD_MULT.
+ * Returns 0 if the result would be negative.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+int ComputeWorstCaseHarvest(Player *aPlayer);
+
+
+/*
+ * Compute a safe grain reserve: enough to survive a worst-case year
+ * (30% rats + weather=1).  Ensures the reserve is at least totalNeed.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+int ComputeSafeGrainReserve(Player *aPlayer);
+
+
 /*------------------------------------------------------------------------------
  *
  * Grain phase.

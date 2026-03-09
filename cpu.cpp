@@ -267,23 +267,9 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
 
     /*
      * SELL SURPLUS GRAIN if we have much more than we need.
-     * Reserve enough to survive a worst-case year: after 30% rats and
-     * weather=1 harvest, must still have enough to feed at 100%.
-     *   reserve_after_rats + worstHarvest >= totalNeed
-     *   reserve * 0.70 + worstHarvest >= totalNeed
-     *   reserve >= (totalNeed - worstHarvest) / 0.70
+     * Reserve enough to survive a worst-case year.
      */
-    int worstHarvest = static_cast<int>(
-        1 * (aPlayer->land - aPlayer->serfCount
-             - 2 * aPlayer->nobleCount - aPlayer->merchantCount
-             - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
-        * GRAIN_YIELD_MULT);
-    if (worstHarvest < 0) worstHarvest = 0;
-    int grainNeededFromReserve = totalNeed - worstHarvest;
-    if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
-    /* Divide by 0.70 to account for rats eating 30%. */
-    int reserve = static_cast<int>(grainNeededFromReserve / 0.70f);
-    if (reserve < totalNeed) reserve = totalNeed;
+    int reserve = ComputeSafeGrainReserve(aPlayer);
     /* Smarter CPUs keep tighter reserves; dumber ones hoard more. */
     reserve = reserve * deviate(110, 160, effError) / 100;
     int surplus = aPlayer->grain - reserve;

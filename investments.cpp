@@ -34,7 +34,6 @@
 
 static void DrawInvestmentsScreen(Player *aPlayer);
 
-static void DisplayInvestments(Player *aPlayer);
 
 
 /*
@@ -43,13 +42,9 @@ static void DisplayInvestments(Player *aPlayer);
 
 static void SetTaxes(Player *aPlayer);
 
-static void SetCustomsTax(Player *aPlayer);
+static void SetTaxRate(Player *aPlayer, int *taxPtr,
+                       int maxRate, const char *taxName);
 
-static void SetSalesTax(Player *aPlayer);
-
-static void SetIncomeTax(Player *aPlayer);
-
-static void DisplayTaxRevenues(Player *aPlayer);
 
 
 /*
@@ -58,17 +53,9 @@ static void DisplayTaxRevenues(Player *aPlayer);
 
 static void BuyInvestments(Player *aPlayer);
 
-static void BuyMarketplaces(Player *aPlayer);
-
-static void BuyGrainMills(Player *aPlayer);
-
-static void BuyFoundries(Player *aPlayer);
-
-static void BuyShipyards(Player *aPlayer);
+static void BuyBuilding(Player *aPlayer, int investmentType);
 
 static void BuySoldiers(Player *aPlayer);
-
-static void BuyPalaces(Player *aPlayer);
 
 static bool ValidateInvestment(Player *aPlayer,
                                int investment,
@@ -183,28 +170,6 @@ static void DrawInvestmentsScreen(Player *aPlayer)
  *   aPlayer                Player.
  */
 
-void DisplayInvestments(Player *aPlayer)
-{
-    /* Display investments. */
-    UISeparator();
-    UIColor(UIC_HEADING);
-    printw("                 Count    Revenue     Cost\n");
-    UIColorOff();
-    printw("1) Marketplaces  %5s    %7s     1,000\n",
-           FmtNum(aPlayer->marketplaceCount), FmtNum(aPlayer->marketplaceRevenue));
-    printw("2) Grain Mills   %5s    %7s     2,000\n",
-           FmtNum(aPlayer->grainMillCount), FmtNum(aPlayer->grainMillRevenue));
-    printw("3) Foundries     %5s    %7s     7,000\n",
-           FmtNum(aPlayer->foundryCount), FmtNum(aPlayer->foundryRevenue));
-    printw("4) Shipyards     %5s    %7s     8,000\n",
-           FmtNum(aPlayer->shipyardCount), FmtNum(aPlayer->shipyardRevenue));
-    printw("5) Soldiers      %5s    %7s         8\n",
-           FmtNum(aPlayer->soldierCount), FmtNum(aPlayer->soldierRevenue));
-    printw("6) Palace        %5d%%              5,000\n",
-           10 * aPlayer->palaceCount);
-    UISeparator();
-}
-
 
 /*------------------------------------------------------------------------------
  *
@@ -242,15 +207,15 @@ void SetTaxes(Player *aPlayer)
                 break;
 
             case 1 :
-                SetCustomsTax(aPlayer);
+                SetTaxRate(aPlayer, &aPlayer->customsTax, 50, "Customs");
                 break;
 
             case 2 :
-                SetSalesTax(aPlayer);
+                SetTaxRate(aPlayer, &aPlayer->salesTax, 20, "Sales");
                 break;
 
             case 3 :
-                SetIncomeTax(aPlayer);
+                SetTaxRate(aPlayer, &aPlayer->incomeTax, 35, "Income");
                 break;
 
             default :
@@ -266,81 +231,24 @@ void SetTaxes(Player *aPlayer)
  *   aPlayer                Player.
  */
 
-void SetCustomsTax(Player *aPlayer)
+void SetTaxRate(Player *aPlayer, int *taxPtr,
+                int maxRate, const char *taxName)
 {
     char input[80];
-    int  customsTax;
-    bool validCustomsTax;
+    int  newRate;
+    bool valid = false;
 
-    /* Get the new customs tax. */
-    validCustomsTax = false;
     do
     {
         CLEAR_MSG_AREA();
-        printw("Customs tax (now %d%%, max 50%%)? ", aPlayer->customsTax);
+        printw("%s tax (now %d%%, max %d%%)? ", taxName, *taxPtr, maxRate);
         getnstr(input, sizeof(input));
-        customsTax = ParseNum(input);
-        if ((customsTax >= 0) && (customsTax <= 50))
-            validCustomsTax = true;
-    } while (!validCustomsTax);
-    aPlayer->customsTax = customsTax;
-    GameLog("  Set customs tax: %d%%\n", customsTax);
-}
-
-
-/*
- * Set sales tax for the player specified by aPlayer
- *
- *   aPlayer                Player.
- */
-
-void SetSalesTax(Player *aPlayer)
-{
-    char input[80];
-    int  salesTax;
-    bool validSalesTax;
-
-    /* Get the new sales tax. */
-    validSalesTax = false;
-    do
-    {
-        CLEAR_MSG_AREA();
-        printw("Sales tax (now %d%%, max 20%%)? ", aPlayer->salesTax);
-        getnstr(input, sizeof(input));
-        salesTax = ParseNum(input);
-        if ((salesTax >= 0) && (salesTax <= 20))
-            validSalesTax = true;
-    } while (!validSalesTax);
-    aPlayer->salesTax = salesTax;
-    GameLog("  Set sales tax: %d%%\n", salesTax);
-}
-
-
-/*
- * Set income tax for the player specified by aPlayer
- *
- *   aPlayer                Player.
- */
-
-void SetIncomeTax(Player *aPlayer)
-{
-    char input[80];
-    int  incomeTax;
-    bool validIncomeTax;
-
-    /* Get the new income tax. */
-    validIncomeTax = false;
-    do
-    {
-        CLEAR_MSG_AREA();
-        printw("Income tax (now %d%%, max 35%%)? ", aPlayer->incomeTax);
-        getnstr(input, sizeof(input));
-        incomeTax = ParseNum(input);
-        if ((incomeTax >= 0) && (incomeTax <= 35))
-            validIncomeTax = true;
-    } while (!validIncomeTax);
-    aPlayer->incomeTax = incomeTax;
-    GameLog("  Set income tax: %d%%\n", incomeTax);
+        newRate = ParseNum(input);
+        if ((newRate >= 0) && (newRate <= maxRate))
+            valid = true;
+    } while (!valid);
+    *taxPtr = newRate;
+    GameLog("  Set %s tax: %d%%\n", taxName, newRate);
 }
 
 
@@ -349,27 +257,6 @@ void SetIncomeTax(Player *aPlayer)
  *
  *   aPlayer                Player.
  */
-
-void DisplayTaxRevenues(Player *aPlayer)
-{
-    Country *country;
-
-    /* Get the player country. */
-    country = aPlayer->country;
-
-    /* Display tax revenues. */
-    UIColor(UIC_HEADING);
-    printw("%-21s %-21s %s\n",
-           "Customs Duty", "Sales Tax", "Income Tax");
-    UIColorOff();
-    printw("%20d%% %20d%% %20d%%\n",
-           aPlayer->customsTax, aPlayer->salesTax, aPlayer->incomeTax);
-    printw("%21s %21s %21s\n",
-           FmtNum(aPlayer->customsTaxRevenue),
-           FmtNum(aPlayer->salesTaxRevenue),
-           FmtNum(aPlayer->incomeTaxRevenue));
-    UISeparator();
-}
 
 
 /*------------------------------------------------------------------------------
@@ -408,27 +295,15 @@ void BuyInvestments(Player *aPlayer)
                 break;
 
             case INVESTMENT_MARKETPLACE :
-                BuyMarketplaces(aPlayer);
-                break;
-
             case INVESTMENT_GRAIN_MILL :
-                BuyGrainMills(aPlayer);
-                break;
-
             case INVESTMENT_FOUNDRY :
-                BuyFoundries(aPlayer);
-                break;
-
             case INVESTMENT_SHIPYARD :
-                BuyShipyards(aPlayer);
+            case INVESTMENT_PALACE :
+                BuyBuilding(aPlayer, ParseNum(input));
                 break;
 
             case INVESTMENT_SOLDIER :
                 BuySoldiers(aPlayer);
-                break;
-
-            case INVESTMENT_PALACE :
-                BuyPalaces(aPlayer);
                 break;
 
             default :
@@ -444,141 +319,57 @@ void BuyInvestments(Player *aPlayer)
  *   aPlayer                Player.
  */
 
-void BuyMarketplaces(Player *aPlayer)
+/*
+ * Lookup tables for building purchases.
+ */
+
+static const char *investmentName[] =
 {
-    char     input[80];
-    int      marketplaceCount;
-    bool     validMarketplaceCount;
+    "marketplaces", "grain mills", "foundries",
+    "shipyards", "soldiers", "palaces",
+};
 
-    /* Get the number of marketplaces to buy. */
-    validMarketplaceCount = false;
-    do
+static int *InvestmentCountPtr(Player *p, int type)
+{
+    switch (type)
     {
-        /* Get user input. */
-        CLEAR_MSG_AREA();
-        printw("How many? ");
-        getnstr(input, sizeof(input));
-        marketplaceCount = ParseNum(input);
-
-        /* Validate the number of marketplaces to buy. */
-        validMarketplaceCount = ValidateInvestment(aPlayer,
-                                                   INVESTMENT_MARKETPLACE,
-                                                   marketplaceCount);
-    } while (!validMarketplaceCount);
-
-    /* Purchase using shared function. */
-    int bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
-                                    marketplaceCount, COST_MARKETPLACE);
-    GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
-            bought, bought * COST_MARKETPLACE, aPlayer->treasury);
-
-    /* Merchants gained with every marketplace purchase action. */
-    ApplyMarketplaceBonus(aPlayer);
+        case INVESTMENT_MARKETPLACE: return &p->marketplaceCount;
+        case INVESTMENT_GRAIN_MILL:  return &p->grainMillCount;
+        case INVESTMENT_FOUNDRY:     return &p->foundryCount;
+        case INVESTMENT_SHIPYARD:    return &p->shipyardCount;
+        case INVESTMENT_PALACE:      return &p->palaceCount;
+        default:                     return nullptr;
+    }
 }
 
 
-/*
- * Buy grain mills for the player specified by aPlayer
- *
- *   aPlayer                Player.
- */
-
-void BuyGrainMills(Player *aPlayer)
+void BuyBuilding(Player *aPlayer, int investmentType)
 {
-    char     input[80];
-    int      grainMillCount;
-    bool     validGrainMillCount;
+    char input[80];
+    int  count;
+    bool valid = false;
 
-    /* Get the number of grain mills to buy. */
-    validGrainMillCount = false;
     do
     {
-        /* Get user input. */
         CLEAR_MSG_AREA();
         printw("How many? ");
         getnstr(input, sizeof(input));
-        grainMillCount = ParseNum(input);
+        count = ParseNum(input);
+        valid = ValidateInvestment(aPlayer, investmentType, count);
+    } while (!valid);
 
-        /* Validate the number of grain mills to buy. */
-        validGrainMillCount = ValidateInvestment(aPlayer,
-                                                 INVESTMENT_GRAIN_MILL,
-                                                 grainMillCount);
-    } while (!validGrainMillCount);
+    int *countPtr = InvestmentCountPtr(aPlayer, investmentType);
+    int  cost = investmentCost[investmentType - 1];
+    int  bought = PurchaseInvestment(aPlayer, countPtr, count, cost);
+    GameLog("  Bought %d %s (-%d)  Treasury: %d\n",
+            bought, investmentName[investmentType - 1],
+            bought * cost, aPlayer->treasury);
 
-    int bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
-                                    grainMillCount, COST_GRAIN_MILL);
-    GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
-            bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
-}
-
-
-/*
- * Buy foundries for the player specified by aPlayer
- *
- *   aPlayer                Player.
- */
-
-void BuyFoundries(Player *aPlayer)
-{
-    char     input[80];
-    int      foundryCount;
-    bool     validFoundryCount;
-
-    /* Get the number of foundries to buy. */
-    validFoundryCount = false;
-    do
-    {
-        /* Get user input. */
-        CLEAR_MSG_AREA();
-        printw("How many? ");
-        getnstr(input, sizeof(input));
-        foundryCount = ParseNum(input);
-
-        /* Validate the number of foundries to buy. */
-        validFoundryCount = ValidateInvestment(aPlayer,
-                                               INVESTMENT_FOUNDRY,
-                                               foundryCount);
-    } while (!validFoundryCount);
-
-    int bought = PurchaseInvestment(aPlayer, &aPlayer->foundryCount,
-                                    foundryCount, COST_FOUNDRY);
-    GameLog("  Bought %d foundries (-%d)  Treasury: %d\n",
-            bought, bought * COST_FOUNDRY, aPlayer->treasury);
-}
-
-
-/*
- * Buy shipyards for the player specified by aPlayer
- *
- *   aPlayer                Player.
- */
-
-void BuyShipyards(Player *aPlayer)
-{
-    char     input[80];
-    int      shipyardCount;
-    bool     validShipyardCount;
-
-    /* Get the number of shipyards to buy. */
-    validShipyardCount = false;
-    do
-    {
-        /* Get user input. */
-        CLEAR_MSG_AREA();
-        printw("How many? ");
-        getnstr(input, sizeof(input));
-        shipyardCount = ParseNum(input);
-
-        /* Validate the number of shipyards to buy. */
-        validShipyardCount = ValidateInvestment(aPlayer,
-                                                INVESTMENT_SHIPYARD,
-                                                shipyardCount);
-    } while (!validShipyardCount);
-
-    int bought = PurchaseInvestment(aPlayer, &aPlayer->shipyardCount,
-                                    shipyardCount, COST_SHIPYARD);
-    GameLog("  Bought %d shipyards (-%d)  Treasury: %d\n",
-            bought, bought * COST_SHIPYARD, aPlayer->treasury);
+    /* Bonuses for specific investment types. */
+    if (investmentType == INVESTMENT_MARKETPLACE)
+        ApplyMarketplaceBonus(aPlayer);
+    else if (investmentType == INVESTMENT_PALACE)
+        ApplyPalaceBonus(aPlayer);
 }
 
 
@@ -645,43 +436,6 @@ void BuySoldiers(Player *aPlayer)
 }
 
 
-/*
- * Buy palaces for the player specified by aPlayer
- *
- *   aPlayer                Player.
- */
-
-void BuyPalaces(Player *aPlayer)
-{
-    char     input[80];
-    int      palaceCount;
-    bool     validPalaceCount;
-
-    /* Get the number of palaces to buy. */
-    validPalaceCount = false;
-    do
-    {
-        /* Get user input. */
-        CLEAR_MSG_AREA();
-        printw("How many? ");
-        getnstr(input, sizeof(input));
-        palaceCount = ParseNum(input);
-
-        /* Validate the number of palaces to buy. */
-        validPalaceCount = ValidateInvestment(aPlayer,
-                                              INVESTMENT_PALACE,
-                                              palaceCount);
-    } while (!validPalaceCount);
-
-    /* Purchase using shared function. */
-    int bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
-                                    palaceCount, COST_PALACE);
-    GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
-            bought, bought * COST_PALACE, aPlayer->treasury);
-
-    /* Nobles gained with every palace purchase action. */
-    ApplyPalaceBonus(aPlayer);
-}
 
 
 /*
