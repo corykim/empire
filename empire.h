@@ -151,6 +151,8 @@ struct Player
     int                     attackCount;
     int                     attackedTargets;
     int                     desiredTroops;
+    float                   cpuDifficulty;
+    int                     strategyIndex;
     float                   diplomacy[COUNTRY_COUNT];
 };
 

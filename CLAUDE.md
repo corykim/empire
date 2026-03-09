@@ -110,16 +110,20 @@ CPU turns follow: Grain → Population → **Military Planning** → Investments
 **Investments** (`cpuInvest`): Guns-vs-butter split based on aggregate diplomacy. `gunsPct = 50 - avgDiplomacy * 30`, clamped to [20%, 80%]. Guns budget buys palaces/foundries (whichever bottlenecks troop capacity). Butter buys economic infrastructure normally.
 
 **Attack** (`selectTargetByDiplomacy`): Unified decision combining:
-1. **Diplomacy weight**: `max(0.01, 1 - score)`, amplified by weakness for enemies
-2. **Envy**: `(targetPower/attackerPower - 1)² × ENVY_SCALE` — quadratic growth ensures powerful turtles become targets
+1. **Diplomacy weight**: `max(0.01, 1 - score)`, amplified by weakness for enemies. Military caution penalty applied only to this component.
+2. **Envy**: `(targetPower/attackerPower - 1)³ × ENVY_SCALE` — cubic growth, bypasses caution entirely. CPUs will send suicide raids to weaken dominant players.
 3. **Theory of mind**: `SimulateAttackOutcome` predicts diplomatic consequences and retaliation
 4. **Barbarians**: Weighted by attacker's military strength, competes in the same pool
-5. **Error blend**: `w = w * (1 - errorPct/100) + 1.0 * (errorPct/100)` — dumber CPUs pick more randomly
+5. **Error blend**: `w = w * (1 - err/100) + 1.0 * (err/100)` — computed from continuous `cpuDifficulty`
 6. **Attack probability**: `effectiveChance = aggression * maxWeight`, capped at 95%
 
 CPUs attack multiple times per turn (up to `nobles/4 + 1`), re-evaluating targets and reserves after each battle.
 
-**Tax optimization** (`manageTaxes`): Base class finds optimal sales/income rates via `OptimizeTaxRates`, then blends toward previous rates by `adaptPct` (Village Fool: 0% adaptation, Machiavelli: 90%). Customs uses `deviate(18, 50)`.
+**Tax optimization** (`manageTaxes`): Base class finds optimal sales/income rates via `OptimizeTaxRates`, then blends toward previous rates by `adaptPct`. Customs uses `deviate(18, 50)`. All parameters derived from per-CPU continuous difficulty.
+
+### Per-CPU Continuous Difficulty
+
+Each CPU gets `cpuDifficulty = baseDifficulty ± random(0.5)`, clamped [0, 4]. `strategyIndex = round(cpuDifficulty)` selects the behavioral class. All proportional parameters computed via `ComputeErrorPct(diff)` and `ComputeAttackChanceBase(diff)` from the continuous value, so two CPUs using the same strategy class still behave differently.
 
 ### Constants
 

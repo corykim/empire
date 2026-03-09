@@ -74,34 +74,35 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
     float maxWeight = 0.0f;
     int   eligibleCount = 0;
     float attackerPower = ComputePlayerPower(aPlayer);
-    float err = errorPct / 100.0f;
+    int   effError = ComputeErrorPct(aPlayer->cpuDifficulty);
+    float err = effError / 100.0f;
 
     for (int i = 0; i < livingCount; i++)
     {
         int idx = livingIndices[i];
         Player *candidate = &playerList[idx];
 
-        float w = DiplomacyAttackWeight(aPlayer->diplomacy[idx],
-                                      candidate->soldierCount);
-
-        /* Envy: powerful targets are attractive regardless of diplomacy.
-         * Quadratic growth ensures envy overwhelms retaliation fear
-         * at high power disparity — a 5x stronger target is irresistible. */
-        float targetPower = ComputePlayerPower(candidate);
-        float envy = (targetPower / attackerPower) - 1.0f;
-        if (envy < 0.0f) envy = 0.0f;
-        w += envy * envy * DIPLOMACY_ENVY_SCALE;
-
-        /* Military caution: penalize targets where we lack the preferred
-         * soldier advantage, but don't exclude them entirely.  Envy can
-         * still override caution for expeditionary attacks. */
+        /* Diplomacy weight with military caution applied. */
+        float diplomacyW = DiplomacyAttackWeight(aPlayer->diplomacy[idx],
+                                                 candidate->soldierCount);
         if (requireOdds > 0.0f && candidate->soldierCount > 0)
         {
             float oddsRatio = static_cast<float>(aPlayer->soldierCount)
                               / static_cast<float>(candidate->soldierCount);
             if (oddsRatio < requireOdds)
-                w *= oddsRatio / requireOdds;
+                diplomacyW *= oddsRatio / requireOdds;
         }
+
+        /* Envy: powerful targets are attractive regardless of diplomacy
+         * or military caution.  Cubic growth ensures envy overwhelms
+         * everything at high power disparity — CPUs will send suicide
+         * raids to weaken a dominant player. */
+        float targetPower = ComputePlayerPower(candidate);
+        float envyRatio = (targetPower / attackerPower) - 1.0f;
+        if (envyRatio < 0.0f) envyRatio = 0.0f;
+        float envyW = envyRatio * envyRatio * envyRatio * DIPLOMACY_ENVY_SCALE;
+
+        float w = diplomacyW + envyW;
 
         /* Theory of mind: simulate diplomatic consequences of this attack. */
         float simScore = SimulateAttackOutcome(aPlayer, idx);
@@ -130,8 +131,9 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
         if (barbarianWeight > maxWeight) maxWeight = barbarianWeight;
     }
 
-    /* Base aggression, used for the attack roll. */
-    int aggression = attackChanceBase + (attackChancePerYear * year);
+    /* Base aggression from continuous difficulty. */
+    int aggression = ComputeAttackChanceBase(aPlayer->cpuDifficulty)
+                     + (attackChancePerYear * year);
 
     if (totalWeight <= 0.0f)
         return TARGET_NONE;
@@ -183,15 +185,15 @@ void CPUStrategy::manageTaxes(Player *aPlayer)
     int optSales = aPlayer->salesTax;
     int optIncome = aPlayer->incomeTax;
 
-    /* Blend optimal toward previous rates based on error.
-     * errorPct=50 (Village Fool): 100% previous rates (never changes).
-     * errorPct=5 (Machiavelli): 90% optimal, 10% inertia.
-     * adaptPct = 100 - 2*errorPct, clamped to [0, 100]. */
-    int adaptPct = 100 - 2 * errorPct;
+    /* Blend optimal toward previous rates based on difficulty.
+     * Low difficulty (err=50): 100% previous rates (never changes).
+     * High difficulty (err=5): 90% optimal, 10% inertia. */
+    int effError = ComputeErrorPct(aPlayer->cpuDifficulty);
+    int adaptPct = 100 - 2 * effError;
     if (adaptPct < 0) adaptPct = 0;
     aPlayer->salesTax = (optSales * adaptPct + prevSales * (100 - adaptPct)) / 100;
     aPlayer->incomeTax = (optIncome * adaptPct + prevIncome * (100 - adaptPct)) / 100;
-    aPlayer->customsTax = deviate(18, 50);
+    aPlayer->customsTax = deviate(18, 50, effError);
 
     GameLog("  Tax adaptation: %d%% toward optimal (sales %d→%d→%d, "
             "income %d→%d→%d)\n",
@@ -202,7 +204,12 @@ void CPUStrategy::manageTaxes(Player *aPlayer)
 
 int CPUStrategy::deviate(int optimal, int maxVal)
 {
-    int range = maxVal * errorPct / 100;
+    return deviate(optimal, maxVal, errorPct);
+}
+
+int CPUStrategy::deviate(int optimal, int maxVal, int err)
+{
+    int range = maxVal * err / 100;
     if (range <= 0)
         return optimal;
     int result = optimal + RandRange(2 * range + 1) - range - 1;
@@ -225,13 +232,13 @@ int CPUStrategy::deviate(int optimal, int maxVal)
 void CPUStrategy::manageGrainTrade(Player *aPlayer)
 {
     int totalNeed = aPlayer->peopleGrainNeed + aPlayer->armyGrainNeed;
+    int effError = ComputeErrorPct(aPlayer->cpuDifficulty);
 
     /*
      * Chance to act at all: smarter CPUs trade more often.
-     * Village Fool (errorPct=50): 50% chance to skip entirely.
-     * Machiavelli (errorPct=5): 5% chance to skip.
+     * Low difficulty: ~50% chance to skip. High difficulty: ~5% chance.
      */
-    if (RandRange(100) <= errorPct)
+    if (RandRange(100) <= effError)
         return;
 
     /*
@@ -263,13 +270,13 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
      * Keep a reserve of ~2x total need (smarter CPUs keep tighter reserves).
      * Price: optimal ~2.5, deviated by errorPct.
      */
-    int reserveMultiple = deviate(200, 400);  /* 200% = 2x need */
+    int reserveMultiple = deviate(200, 400, effError);
     int reserve = totalNeed * reserveMultiple / 100;
     int surplus = aPlayer->grain - reserve;
     if (surplus > 500)
     {
         /* Sell a fraction of the surplus. */
-        int sellAmount = surplus * (100 - errorPct) / 100;
+        int sellAmount = surplus * (100 - effError) / 100;
         if (sellAmount > 100)
         {
             /* Price competitively: match existing market prices if any,
@@ -296,7 +303,7 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
             {
                 /* No market: base price from land economics. */
                 price = GRAIN_PRICE_BASE
-                        + static_cast<float>(deviate(2, 4)) / 1000.0f;
+                        + static_cast<float>(deviate(2, 4, effError)) / 1000.0f;
             }
             if (price < GRAIN_PRICE_BASE) price = GRAIN_PRICE_BASE;
             ListGrainForSale(aPlayer, sellAmount, price);
@@ -335,7 +342,8 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     bool boughtAnyPalaces = false;
 
     /* Waste a percentage of the budget on random purchases. */
-    int wasteBudget = aPlayer->treasury * errorPct / 100;
+    int effError = ComputeErrorPct(aPlayer->cpuDifficulty);
+    int wasteBudget = aPlayer->treasury * effError / 100;
     while (wasteBudget > 0 && aPlayer->treasury > 0)
     {
         int pick = RandRange(5) - 1;

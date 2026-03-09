@@ -80,7 +80,8 @@ public:
 
 protected:
     /* Shared helpers available to all derived classes. */
-    int  deviate(int optimal, int maxVal);
+    int  deviate(int optimal, int maxVal);          /* Uses this->errorPct */
+    int  deviate(int optimal, int maxVal, int err); /* Uses explicit error */
     void cpuInvest(Player *aPlayer);
 };
 

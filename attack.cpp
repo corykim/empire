@@ -137,7 +137,7 @@ void AttackScreen(Player *aPlayer)
 
 void CPUAttackScreen(Player *aPlayer)
 {
-    CPUStrategy *strategy = cpuStrategies[difficulty];
+    CPUStrategy *strategy = cpuStrategies[aPlayer->strategyIndex];
     Player *targetPlayer;
     int     targetIndex;
     int     i;
@@ -395,7 +395,7 @@ static void CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
     available = aPlayer->soldierCount - reserve;
     if (available <= 0)
         return;
-    soldiersToSend = cpuStrategies[difficulty]->chooseSoldiersToSend(
+    soldiersToSend = cpuStrategies[aPlayer->strategyIndex]->chooseSoldiersToSend(
                          aPlayer, aTargetPlayer);
     if (soldiersToSend > available)
         soldiersToSend = available;

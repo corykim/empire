@@ -675,6 +675,26 @@ static void GameSetupScreen()
         player->grainForSale = 0;
         player->grainPrice = 0.0;
         player->attackedTargets = 0;
+
+        /* Per-CPU difficulty: base ± 0.5, clamped to [0, 4]. */
+        if (!player->human)
+        {
+            float offset = (static_cast<float>(RandRange(101)) - 51.0f) / 100.0f;
+            player->cpuDifficulty = static_cast<float>(difficulty) + offset;
+            if (player->cpuDifficulty < 0.0f) player->cpuDifficulty = 0.0f;
+            if (player->cpuDifficulty > 4.0f) player->cpuDifficulty = 4.0f;
+            player->strategyIndex = static_cast<int>(player->cpuDifficulty + 0.5f);
+            if (player->strategyIndex > 4) player->strategyIndex = 4;
+            GameLog("  %s: difficulty=%.2f strategy=%d (%s)\n",
+                    player->country->name, player->cpuDifficulty,
+                    player->strategyIndex,
+                    cpuStrategies[player->strategyIndex]->name);
+        }
+        else
+        {
+            player->cpuDifficulty = 0.0f;
+            player->strategyIndex = 0;
+        }
     }
 
     /* Initialize diplomacy scores between all players. */
@@ -881,12 +901,13 @@ static void CPUGrainPhase(Player *aPlayer)
     ComputeGrainPhase(aPlayer);
 
     /* Trade grain and land via the strategy. */
-    cpuStrategies[difficulty]->manageGrainTrade(aPlayer);
+    cpuStrategies[aPlayer->strategyIndex]->manageGrainTrade(aPlayer);
 
     /* CPU feeds army.  Higher difficulties overfeed for army efficiency
      * (level 4 = 125%, level 5 = 150%), as long as enough grain remains
      * to cover 50% of the total feeding requirement (army + people). */
-    int armyOverfeedPct = 100 + 25 * MAX(0, difficulty - 2);
+    int armyOverfeedPct = 100 + static_cast<int>(
+        25.0f * MAX(0.0f, aPlayer->cpuDifficulty - 2.0f));
     int armyFeedTarget = aPlayer->armyGrainNeed;
     if (armyOverfeedPct > 100)
     {
@@ -904,7 +925,7 @@ static void CPUGrainPhase(Player *aPlayer)
      * so optimal is ~190%.  Lower difficulty deviates more from optimal.
      */
     int optimalOverfeed = 190;
-    int errorRange = 50 - 10 * difficulty;
+    int errorRange = ComputeErrorPct(aPlayer->cpuDifficulty);
     int overfeedPct = optimalOverfeed + RandRange(2 * errorRange + 1)
                       - errorRange - 1;
     if (overfeedPct < 100)
@@ -999,12 +1020,12 @@ static void CPUInvestmentsPhase(Player *aPlayer)
     ComputeRevenues(aPlayer);
 
     /* Set taxes via the strategy. */
-    cpuStrategies[difficulty]->manageTaxes(aPlayer);
+    cpuStrategies[aPlayer->strategyIndex]->manageTaxes(aPlayer);
     GameLog("  Set taxes: Customs %d%%, Sales %d%%, Income %d%%\n",
             aPlayer->customsTax, aPlayer->salesTax, aPlayer->incomeTax);
 
     /* Make investment purchases via the strategy. */
-    cpuStrategies[difficulty]->manageInvestments(aPlayer);
+    cpuStrategies[aPlayer->strategyIndex]->manageInvestments(aPlayer);
 }
 
 

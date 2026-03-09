@@ -221,14 +221,14 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 
 **How diplomacy affects CPU behavior:**
 - **Target selection**: CPUs are most likely to attack the player with the lowest score. Positive scores make you an unlikely target; negative scores paint a bullseye.
-- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows quadratically with power disparity, so extreme turtling becomes untenable.
+- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution — CPUs will send suicide raids to weaken a dominant player regardless of the odds.
 - **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards).
 - **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies.
 - **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be.
 
 ### CPU Opponents
 
-CPU players use the same economic rules as you. They buy and sell grain, set taxes, build investments, recruit soldiers, and attack. At higher difficulty levels they make smarter decisions:
+CPU players use the same economic rules as you. They buy and sell grain, set taxes, build investments, recruit soldiers, and attack. Each CPU gets a difficulty level close to your chosen setting (±0.5 random variation), so no two opponents behave identically. At higher difficulty levels they make smarter decisions:
 
 - **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases. Picks targets nearly at random, ignoring diplomacy scores. Never adjusts tax rates from defaults.
 - **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error. Scores moderately influence target selection. Slowly adapts tax rates toward optimal.

@@ -28,6 +28,27 @@ constexpr int DELAY_TIME          = 2000000;  /* Base message delay (microsecond
 constexpr int SERF_EFFICIENCY     = 5;        /* Serf fighting efficiency (10 = 100%) */
 constexpr int RANDOM_DEATH_CHANCE = 400;      /* 1 in N chance of random death per year */
 
+/* CPU difficulty scaling.  errorPct and attackChanceBase are interpolated
+ * from continuous difficulty (0.0–4.0) rather than discrete levels.
+ *   errorPct: 50 at diff=0, 5 at diff=4 → 50 - 11.25*diff
+ *   attackChanceBase: 20 at diff=0, 80 at diff=4 → 20 + 15*diff
+ */
+inline int ComputeErrorPct(float diff)
+{
+    int e = static_cast<int>(50.0f - 11.25f * diff);
+    if (e < 3) e = 3;
+    if (e > 55) e = 55;
+    return e;
+}
+
+inline int ComputeAttackChanceBase(float diff)
+{
+    int a = static_cast<int>(20.0f + 15.0f * diff);
+    if (a < 15) a = 15;
+    if (a > 85) a = 85;
+    return a;
+}
+
 /* Starting values. */
 constexpr int STARTING_LAND       = 10000;
 constexpr int STARTING_GRAIN_BASE = 15000;
