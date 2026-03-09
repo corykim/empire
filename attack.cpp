@@ -759,6 +759,7 @@ static void DisplayBattleResults(Battle *aBattle, bool humanAttacker)
     {
         printw("\n");
         UISeparator();
+        flushinp();
         printw("<Enter>? ");
         getnstr(input, sizeof(input));
     }

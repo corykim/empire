@@ -267,11 +267,25 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
 
     /*
      * SELL SURPLUS GRAIN if we have much more than we need.
-     * Keep a reserve of ~2x total need (smarter CPUs keep tighter reserves).
-     * Price: optimal ~2.5, deviated by errorPct.
+     * Reserve enough to survive a worst-case year: after 30% rats and
+     * weather=1 harvest, must still have enough to feed at 100%.
+     *   reserve_after_rats + worstHarvest >= totalNeed
+     *   reserve * 0.70 + worstHarvest >= totalNeed
+     *   reserve >= (totalNeed - worstHarvest) / 0.70
      */
-    int reserveMultiple = deviate(200, 400, effError);
-    int reserve = totalNeed * reserveMultiple / 100;
+    int worstHarvest = static_cast<int>(
+        1 * (aPlayer->land - aPlayer->serfCount
+             - 2 * aPlayer->nobleCount - aPlayer->merchantCount
+             - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
+        * GRAIN_YIELD_MULT);
+    if (worstHarvest < 0) worstHarvest = 0;
+    int grainNeededFromReserve = totalNeed - worstHarvest;
+    if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
+    /* Divide by 0.70 to account for rats eating 30%. */
+    int reserve = static_cast<int>(grainNeededFromReserve / 0.70f);
+    if (reserve < totalNeed) reserve = totalNeed;
+    /* Smarter CPUs keep tighter reserves; dumber ones hoard more. */
+    reserve = reserve * deviate(110, 160, effError) / 100;
     int surplus = aPlayer->grain - reserve;
     if (surplus > 500)
     {
@@ -405,6 +419,36 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
 
     if (gunsPct < 20) gunsPct = 20;
     if (gunsPct > 80) gunsPct = 80;
+
+    /* When guns dominate, sell grain reserves to fund military.
+     * The more guns-heavy, the deeper we dip into reserves.
+     * At 80% guns, willing to sell down to 50% of safe reserve.
+     * At 50% guns, no grain selling for military. */
+    if (gunsPct > 50 && aPlayer->grain > aPlayer->peopleGrainNeed)
+    {
+        float urgency = static_cast<float>(gunsPct - 50) / 30.0f;
+        int minKeep = aPlayer->peopleGrainNeed
+                      + static_cast<int>((1.0f - urgency * 0.5f)
+                        * (aPlayer->grain - aPlayer->peopleGrainNeed));
+        int canSell = aPlayer->grain - minKeep;
+        if (canSell > 500)
+        {
+            /* Find market price or use base price. */
+            float price = GRAIN_PRICE_BASE;
+            for (int i = 0; i < COUNTRY_COUNT; i++)
+            {
+                if (&playerList[i] != aPlayer && !playerList[i].dead
+                    && playerList[i].grainForSale > 0)
+                {
+                    price = playerList[i].grainPrice;
+                    break;
+                }
+            }
+            ListGrainForSale(aPlayer, canSell, price);
+            GameLog("  Sold %d grain for military funding (urgency %.0f%%)\n",
+                    canSell, urgency * 100.0f);
+        }
+    }
 
     int gunsBudget = aPlayer->treasury * gunsPct / 100;
     int troopDeficit = aPlayer->desiredTroops - aPlayer->soldierCount;

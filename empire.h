@@ -297,7 +297,7 @@ int ParseNum(const char *str);
  * the cursor at the start of the prompt row.  Uses winrows for dynamic sizing.
  */
 
-#define CLEAR_MSG_AREA() do { move(winrows-2, 0); clrtoeol(); move(winrows-1, 0); clrtoeol(); move(winrows-2, 0); } while (0)
+#define CLEAR_MSG_AREA() do { flushinp(); move(winrows-2, 0); clrtoeol(); move(winrows-1, 0); clrtoeol(); move(winrows-2, 0); } while (0)
 
 
 #endif /* __EMPIRE_H__ */

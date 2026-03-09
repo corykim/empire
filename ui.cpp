@@ -109,6 +109,16 @@ void UITitle(const char *title, const char *rulerLine)
         printw("%s -- %s", rulerLine, title);
     else
         printw("%s", title);
+
+    /* Year indicator on the right side. */
+    if (year > 0)
+    {
+        char yearStr[16];
+        snprintf(yearStr, sizeof(yearStr), "Year %d", year);
+        int len = static_cast<int>(strlen(yearStr));
+        if (wincols - len - 1 > 0)
+            mvprintw(0, wincols - len - 1, "%s", yearStr);
+    }
     UIColorOff();
 
     /* Separator. */

@@ -124,6 +124,7 @@ void PopulationScreen(Player *aPlayer)
     ApplyPopulationChanges(aPlayer, result);
 
     UISeparator();
+    flushinp();
     printw("<Enter>? ");
     getnstr(input, 80);
 
@@ -183,6 +184,7 @@ static void PlayerDeathUI(Player *aPlayer, DeathCause cause)
 
     UISeparator();
     char input[80];
+    flushinp();
     printw("<Enter>? ");
     getnstr(input, sizeof(input));
 }

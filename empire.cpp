@@ -43,6 +43,8 @@ static void NewYearScreen();
 
 static void SummaryScreen();
 
+static void LogRoundSummary();
+
 static void PlayHuman(Player *aPlayer);
 
 static void PlayCPU(Player *aPlayer);
@@ -216,91 +218,13 @@ int main(int argc, char *argv[])
         /* Start a new year. */
         NewYearScreen();
 
-        /* Log detailed stats and diplomacy for all countries. */
+        /* Year header in log (before turns). */
         GameLog("\n################################################################"
                 "################\n");
         GameLog("###  YEAR %d  —  Weather: %d/6 (%s)  ###\n",
                 year, weather, weatherList[weather - 1]);
         GameLog("################################################################"
                 "################\n");
-        /* Sort players by power for log tables. */
-        int logOrder[COUNTRY_COUNT];
-        int logCount = 0;
-        for (i = 0; i < COUNTRY_COUNT; i++)
-            logOrder[logCount++] = i;
-        for (int a = 0; a < logCount - 1; a++)
-            for (int b = a + 1; b < logCount; b++)
-            {
-                float pa = playerList[logOrder[a]].dead ? 0 :
-                           ComputePlayerPower(&playerList[logOrder[a]]);
-                float pb = playerList[logOrder[b]].dead ? 0 :
-                           ComputePlayerPower(&playerList[logOrder[b]]);
-                if (pb > pa)
-                {
-                    int tmp = logOrder[a];
-                    logOrder[a] = logOrder[b];
-                    logOrder[b] = tmp;
-                }
-            }
-
-        /* Stats table. */
-        GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
-                "Country", "Land", "Grain", "Gold", "Serfs", "Merch",
-                "Nob", "Army", "Mkt", "Mil", "Fnd", "Shp", "Pal",
-                "Cus", "Sal", "Inc", "Power");
-        GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
-                "--------------", "------", "------", "-------",
-                "------", "-----", "----", "-----",
-                "---", "---", "---", "---", "---",
-                "---", "---", "---", "------");
-        for (int s = 0; s < logCount; s++)
-        {
-            Player *p = &playerList[logOrder[s]];
-            if (p->dead)
-            {
-                GameLog("%-14s  -- DEAD --\n", p->country->name);
-                continue;
-            }
-            GameLog("%-13s%s %6d %6d %7d %6d %5d %4d %5d  %3d %3d %3d %3d %3d  %3d/%3d/%3d  %6.0f\n",
-                    p->country->name, p->human ? "*" : " ",
-                    p->land, p->grain, p->treasury,
-                    p->serfCount, p->merchantCount, p->nobleCount,
-                    p->soldierCount,
-                    p->marketplaceCount, p->grainMillCount,
-                    p->foundryCount, p->shipyardCount, p->palaceCount,
-                    p->customsTax, p->salesTax, p->incomeTax,
-                    ComputePlayerPower(p));
-        }
-        GameLog("\n");
-
-        /* Diplomacy table (columns sorted by power). */
-        GameLog("Diplomacy:       ");
-        for (int s = 0; s < logCount; s++)
-        {
-            if (!playerList[logOrder[s]].dead)
-                GameLog(" %10s", playerList[logOrder[s]].country->name);
-        }
-        GameLog("\n");
-        for (int sr = 0; sr < logCount; sr++)
-        {
-            int ri = logOrder[sr];
-            if (playerList[ri].dead || playerList[ri].human)
-                continue;
-            GameLog("%-14s ", playerList[ri].country->name);
-            for (int sc = 0; sc < logCount; sc++)
-            {
-                int ci = logOrder[sc];
-                if (playerList[ci].dead)
-                    continue;
-                if (ri == ci)
-                    GameLog(" %10s", "---");
-                else
-                    GameLog(" %+10.3f", playerList[ri].diplomacy[ci]);
-            }
-            GameLog("\n");
-        }
-        GameLog("\n");
-
         /* Randomize the turn order for this year. */
         int turnOrder[COUNTRY_COUNT];
         for (i = 0; i < COUNTRY_COUNT; i++)
@@ -376,7 +300,8 @@ int main(int argc, char *argv[])
                            lastHuman->name);
                     UIColorOff();
                     UISeparator();
-                    printw("<Enter>? ");
+                    flushinp();
+    printw("<Enter>? ");
                     getnstr(input, sizeof(input));
                     gameOver = true;
                 }
@@ -390,6 +315,9 @@ int main(int argc, char *argv[])
         /* Stop if game over. */
         if (gameOver)
             break;
+
+        /* Log end-of-round stats and diplomacy. */
+        LogRoundSummary();
 
         /* Display summary. */
         SummaryScreen();
@@ -727,6 +655,89 @@ static void NewYearScreen()
  * Display a summary of all players.
  */
 
+static void LogRoundSummary()
+{
+    /* Sort players by power for log tables. */
+    int logOrder[COUNTRY_COUNT];
+    int logCount = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+        logOrder[logCount++] = i;
+    for (int a = 0; a < logCount - 1; a++)
+        for (int b = a + 1; b < logCount; b++)
+        {
+            float pa = playerList[logOrder[a]].dead ? 0 :
+                       ComputePlayerPower(&playerList[logOrder[a]]);
+            float pb = playerList[logOrder[b]].dead ? 0 :
+                       ComputePlayerPower(&playerList[logOrder[b]]);
+            if (pb > pa)
+            {
+                int tmp = logOrder[a];
+                logOrder[a] = logOrder[b];
+                logOrder[b] = tmp;
+            }
+        }
+
+    /* Stats table. */
+    GameLog("--- End of Round Stats ---\n");
+    GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
+            "Country", "Land", "Grain", "Gold", "Serfs", "Merch",
+            "Nob", "Army", "Mkt", "Mil", "Fnd", "Shp", "Pal",
+            "Cus", "Sal", "Inc", "Power");
+    GameLog("%-14s %6s %6s %7s %6s %5s %4s %5s  %3s %3s %3s %3s %3s  %3s/%3s/%3s  %6s\n",
+            "--------------", "------", "------", "-------",
+            "------", "-----", "----", "-----",
+            "---", "---", "---", "---", "---",
+            "---", "---", "---", "------");
+    for (int s = 0; s < logCount; s++)
+    {
+        Player *p = &playerList[logOrder[s]];
+        if (p->dead)
+        {
+            GameLog("%-14s  -- DEAD --\n", p->country->name);
+            continue;
+        }
+        GameLog("%-13s%s %6d %6d %7d %6d %5d %4d %5d  %3d %3d %3d %3d %3d  %3d/%3d/%3d  %6.0f\n",
+                p->country->name, p->human ? "*" : " ",
+                p->land, p->grain, p->treasury,
+                p->serfCount, p->merchantCount, p->nobleCount,
+                p->soldierCount,
+                p->marketplaceCount, p->grainMillCount,
+                p->foundryCount, p->shipyardCount, p->palaceCount,
+                p->customsTax, p->salesTax, p->incomeTax,
+                ComputePlayerPower(p));
+    }
+    GameLog("\n");
+
+    /* Diplomacy table (columns sorted by power). */
+    GameLog("Diplomacy:       ");
+    for (int s = 0; s < logCount; s++)
+    {
+        if (!playerList[logOrder[s]].dead)
+            GameLog(" %10s", playerList[logOrder[s]].country->name);
+    }
+    GameLog("\n");
+    for (int sr = 0; sr < logCount; sr++)
+    {
+        int ri = logOrder[sr];
+        if (playerList[ri].dead || playerList[ri].human)
+            continue;
+        GameLog("%-14s ", playerList[ri].country->name);
+        for (int sc = 0; sc < logCount; sc++)
+        {
+            int ci = logOrder[sc];
+            if (playerList[ci].dead)
+                continue;
+            if (ri == ci)
+                GameLog(" %10s", "---");
+            else
+                GameLog(" %+10.3f", playerList[ri].diplomacy[ci]);
+        }
+        GameLog("\n");
+    }
+    GameLog("\n");
+}
+
+
 static void SummaryScreen()
 {
     char    input[80];
@@ -776,6 +787,7 @@ static void SummaryScreen()
 
     /* Wait for player. */
     UISeparator();
+    flushinp();
     printw("<Enter>? ");
     getnstr(input, sizeof(input));
 }
@@ -900,20 +912,64 @@ static void CPUGrainPhase(Player *aPlayer)
     /* Shared grain computation (rats, harvest, needs). */
     ComputeGrainPhase(aPlayer);
 
+    /* Compute a safe grain reserve: enough to survive a worst-case year.
+     *   reserve_after_rats + worstHarvest >= totalNeed
+     *   reserve * 0.70 + worstHarvest >= totalNeed
+     *   reserve >= (totalNeed - worstHarvest) / 0.70
+     */
+    int totalNeed = aPlayer->armyGrainNeed + aPlayer->peopleGrainNeed;
+    int worstHarvest = static_cast<int>(
+        1 * (aPlayer->land - aPlayer->serfCount
+             - 2 * aPlayer->nobleCount - aPlayer->merchantCount
+             - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
+        * GRAIN_YIELD_MULT);
+    if (worstHarvest < 0) worstHarvest = 0;
+    int grainNeededFromReserve = totalNeed - worstHarvest;
+    if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
+    int safeReserve = static_cast<int>(grainNeededFromReserve / 0.70f);
+    if (safeReserve < totalNeed) safeReserve = totalNeed;
+
+    /* Discount reserve if cheap grain is on the market. */
+    int marketGrain = 0;
+    float cheapestPrice = 999.0f;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        Player *p = &playerList[i];
+        if (p != aPlayer && !p->dead && p->grainForSale > 0)
+        {
+            marketGrain += p->grainForSale;
+            if (p->grainPrice < cheapestPrice)
+                cheapestPrice = p->grainPrice;
+        }
+    }
+    if (marketGrain > 0 && cheapestPrice < 999.0f)
+    {
+        int canBuy = static_cast<int>(
+            (aPlayer->treasury * 0.5f * (1.0f - GRAIN_MARKUP)) / cheapestPrice);
+        if (canBuy > marketGrain) canBuy = marketGrain;
+        safeReserve -= canBuy;
+        if (safeReserve < totalNeed / 4) safeReserve = totalNeed / 4;
+    }
+
+    GameLog("  Safe grain reserve: %d (totalNeed=%d, worstHarvest=%d, "
+            "marketDiscount=%d)\n",
+            safeReserve, totalNeed, worstHarvest,
+            marketGrain > 0 ? static_cast<int>(
+                (aPlayer->treasury * 0.5f * (1.0f - GRAIN_MARKUP))
+                / cheapestPrice) : 0);
+
     /* Trade grain and land via the strategy. */
     cpuStrategies[aPlayer->strategyIndex]->manageGrainTrade(aPlayer);
 
-    /* CPU feeds army.  Higher difficulties overfeed for army efficiency
-     * (level 4 = 125%, level 5 = 150%), as long as enough grain remains
-     * to cover 50% of the total feeding requirement (army + people). */
+    /* CPU feeds army.  Higher difficulties overfeed for army efficiency,
+     * but only if grain exceeds the safe reserve after feeding. */
     int armyOverfeedPct = 100 + static_cast<int>(
         25.0f * MAX(0.0f, aPlayer->cpuDifficulty - 2.0f));
     int armyFeedTarget = aPlayer->armyGrainNeed;
     if (armyOverfeedPct > 100)
     {
         int overfedArmy = (aPlayer->armyGrainNeed * armyOverfeedPct + 99) / 100;
-        int totalNeed = aPlayer->armyGrainNeed + aPlayer->peopleGrainNeed;
-        if (aPlayer->grain - overfedArmy >= totalNeed / 2)
+        if (aPlayer->grain - overfedArmy >= safeReserve + aPlayer->peopleGrainNeed)
             armyFeedTarget = overfedArmy;
     }
     aPlayer->armyGrainFeed = MIN(armyFeedTarget, aPlayer->grain);
@@ -921,8 +977,8 @@ static void CPUGrainPhase(Player *aPlayer)
 
     /*
      * CPU feeds people above the required amount when surplus allows,
-     * to attract immigrants.  Immigration requires feed > 1.5x need,
-     * so optimal is ~190%.  Lower difficulty deviates more from optimal.
+     * to attract immigrants.  Only overfeed if grain after feeding
+     * still exceeds the safe reserve.
      */
     int optimalOverfeed = 190;
     int errorRange = ComputeErrorPct(aPlayer->cpuDifficulty);
@@ -931,13 +987,22 @@ static void CPUGrainPhase(Player *aPlayer)
     if (overfeedPct < 100)
         overfeedPct = 100;
     int desiredFeed = aPlayer->peopleGrainNeed * overfeedPct / 100;
+
+    /* Clamp overfeed to preserve safe reserve. */
+    int maxFeed = aPlayer->grain - safeReserve;
+    if (maxFeed < aPlayer->peopleGrainNeed)
+        maxFeed = aPlayer->peopleGrainNeed;  /* Always feed at least 100% */
+    if (desiredFeed > maxFeed)
+        desiredFeed = maxFeed;
+
     aPlayer->peopleGrainFeed = MIN(desiredFeed, aPlayer->grain);
     aPlayer->grain -= aPlayer->peopleGrainFeed;
 
     GameLog("  Feed army: %d (need %d)  Feed people: %d (need %d, %d%%)\n",
             aPlayer->armyGrainFeed, aPlayer->armyGrainNeed,
             aPlayer->peopleGrainFeed, aPlayer->peopleGrainNeed, overfeedPct);
-    GameLog("  Grain remaining: %d\n", aPlayer->grain);
+    GameLog("  Grain remaining: %d (safe reserve: %d)\n",
+            aPlayer->grain, safeReserve);
 }
 
 
@@ -999,7 +1064,8 @@ static void CPUPopulationPhase(Player *aPlayer)
         printw("\nThe other nation-states have sent representatives "
                "to the funeral.\n");
         UISeparator();
-        printw("<Enter>? ");
+        flushinp();
+    printw("<Enter>? ");
         getnstr(input, sizeof(input));
     }
 }
@@ -1082,6 +1148,7 @@ static void OmniscientScreen(Player *aPlayer)
            10 * aPlayer->palaceCount);
     UISeparator();
 
+    flushinp();
     printw("<Enter>? ");
     getnstr(input, sizeof(input));
 }
