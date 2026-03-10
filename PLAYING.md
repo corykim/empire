@@ -235,7 +235,7 @@ CPU players use the same economic rules as you. They buy and sell grain, set tax
 
 - **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases. Picks targets nearly at random, ignoring diplomacy scores. Never adjusts tax rates from defaults.
 - **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error. Scores moderately influence target selection. Slowly adapts tax rates toward optimal.
-- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds army at 150%, uses full theory-of-mind simulation, coordinates with allies, and goes all-in against vulnerable targets.
+- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds for immigration (withdrawing own market grain and buying grain if needed), uses full theory-of-mind simulation, coordinates with allies, and goes all-in against vulnerable targets.
 
 CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
 

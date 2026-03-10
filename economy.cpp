@@ -492,14 +492,15 @@ int ComputeWorstCaseHarvest(Player *aPlayer)
 
 int ComputeSafeGrainReserve(Player *aPlayer)
 {
-    /* Include overfeed target (190%) for people, not just 100%. */
-    int overfeedNeed = aPlayer->peopleGrainNeed * CPU_OVERFEED_PCT / 100
-                       + aPlayer->armyGrainNeed;
+    /* Reserve enough to SURVIVE a worst-case year at 100% feeding.
+     * Overfeeding is aspirational — don't reserve grain for it.
+     * This frees grain for immigration-enabling overfeeds. */
+    int totalNeed = aPlayer->peopleGrainNeed + aPlayer->armyGrainNeed;
     int worstHarvest = ComputeWorstCaseHarvest(aPlayer);
-    int grainNeededFromReserve = overfeedNeed - worstHarvest;
+    int grainNeededFromReserve = totalNeed - worstHarvest;
     if (grainNeededFromReserve < 0) grainNeededFromReserve = 0;
     int reserve = static_cast<int>(grainNeededFromReserve / 0.70f);
-    if (reserve < overfeedNeed) reserve = overfeedNeed;
+    if (reserve < totalNeed) reserve = totalNeed;
     return reserve;
 }
 

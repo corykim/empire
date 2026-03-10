@@ -370,14 +370,32 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
         return;
 
     /*
-     * WITHDRAW grain from our own market listing when starving.
-     * Cheaper than buying (only GRAIN_WITHDRAW_FEE spoilage).
+     * WITHDRAW grain from our own market listing when needed.
+     * First priority: starvation. Second: immigration threshold.
      */
-    if (aPlayer->grain < totalNeed && aPlayer->grainForSale > 0)
+    if (aPlayer->grainForSale > 0)
     {
-        int deficit = totalNeed - aPlayer->grain;
-        int withdrawAmount = MIN(deficit * 2, aPlayer->grainForSale);
-        WithdrawGrain(aPlayer, withdrawAmount);
+        int target;
+        if (aPlayer->grain < totalNeed)
+        {
+            /* Starving — withdraw enough to feed at 100%. */
+            target = totalNeed;
+        }
+        else
+        {
+            /* Not starving — withdraw enough to overfeed for immigration. */
+            target = overfeedNeed;
+        }
+
+        if (aPlayer->grain < target)
+        {
+            int deficit = target - aPlayer->grain;
+            /* Withdraw extra to offset the 15% spoilage. */
+            int withdrawAmount = MIN(
+                static_cast<int>(deficit / (1.0f - GRAIN_WITHDRAW_FEE)) + 1,
+                aPlayer->grainForSale);
+            WithdrawGrain(aPlayer, withdrawAmount);
+        }
     }
 
     /*
@@ -401,12 +419,22 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     }
 
     /*
-     * SELL SURPLUS GRAIN — only what exceeds the safe reserve including
-     * the overfeed budget.  The reserve accounts for worst-case weather.
+     * SELL SURPLUS GRAIN — only what exceeds the safe reserve plus
+     * the immigration overfeed budget.  Keep enough to both survive
+     * a bad year AND overfeed for immigration this year.
      */
     int reserve = ComputeSafeGrainReserve(aPlayer);
     reserve = reserve * deviate(110, 160, effError) / 100;
-    if (reserve < overfeedNeed) reserve = overfeedNeed;
+    /* Reserve enough to overfeed for immigration.  When immigration
+     * is critical (2+ years without), protect the full overfeed budget. */
+    int immigrationBudget = overfeedNeed - totalNeed;
+    if (immigrationBudget > 0)
+    {
+        if (aPlayer->yearsSinceImmigration >= 2)
+            reserve += immigrationBudget;       /* Protect full overfeed */
+        else
+            reserve += immigrationBudget / 2;   /* Protect half */
+    }
     bool listedNewGrain = false;
     int surplus = aPlayer->grain - reserve;
     if (surplus > 500)

@@ -971,10 +971,11 @@ static void CPUGrainPhase(Player *aPlayer)
     /* Trade grain and land via the strategy. */
     cpuStrategies[aPlayer->strategyIndex]->manageGrainTrade(aPlayer);
 
-    /* Buy grain to enable immigration if we have treasury and market grain. */
+    /* Buy grain to enable immigration if we have treasury and market grain.
+     * Immigration is the #1 growth driver — spend aggressively to enable it. */
     int immigrationTarget = static_cast<int>(aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT)
                             + aPlayer->armyGrainNeed;
-    if (aPlayer->grain < immigrationTarget && aPlayer->treasury > COST_MARKETPLACE)
+    if (aPlayer->grain < immigrationTarget && aPlayer->treasury > COST_SOLDIER)
     {
         int deficit = immigrationTarget - aPlayer->grain;
         /* Find cheapest seller. */
@@ -986,7 +987,8 @@ static void CPUGrainPhase(Player *aPlayer)
                     cheapest = p;
         }
         if (cheapest) {
-            int canAfford = static_cast<int>((aPlayer->treasury * 0.3f * (1.0f - GRAIN_MARKUP)) / cheapest->grainPrice);
+            /* Spend up to 50% of treasury on grain for immigration. */
+            int canAfford = static_cast<int>((aPlayer->treasury * 0.5f * (1.0f - GRAIN_MARKUP)) / cheapest->grainPrice);
             int toBuy = MIN(deficit, MIN(canAfford, cheapest->grainForSale));
             if (toBuy > 0) {
                 TradeGrain(aPlayer, cheapest, toBuy);
@@ -1022,17 +1024,29 @@ static void CPUGrainPhase(Player *aPlayer)
         overfeedPct = 100;
     int desiredFeed = aPlayer->peopleGrainNeed * overfeedPct / 100;
 
-    /* Clamp overfeed to preserve safe reserve — unless no immigration
-     * for 3+ years, in which case dip into reserve to attract immigrants. */
+    /* Clamp overfeed to preserve safe reserve — UNLESS the CPU can
+     * achieve immigration by overfeeding above 150%.  Immigration
+     * (nobles, merchants) is more valuable than grain reserves. */
     int maxFeed = aPlayer->grain - safeReserve;
-    if (aPlayer->yearsSinceImmigration >= 3 && aPlayer->grain > desiredFeed)
+    int immigrationThreshold = static_cast<int>(
+        aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT);
+    bool canAchieveImmigration = (aPlayer->grain - aPlayer->armyGrainFeed)
+                                  >= immigrationThreshold;
+    if (canAchieveImmigration)
     {
-        /* Desperate for immigration: feed the full overfeed even if it
-         * dips into the safe reserve. Still keep at least 50% of reserve. */
-        int desperateMax = aPlayer->grain - safeReserve / 2;
+        /* Allow feeding up to all available grain (minus army feed).
+         * Immigration is worth the reserve risk. */
+        maxFeed = aPlayer->grain - aPlayer->armyGrainFeed;
+        GameLog("  Immigration possible — allowing full overfeed\n");
+    }
+    else if (aPlayer->yearsSinceImmigration >= 2 && aPlayer->grain > desiredFeed)
+    {
+        /* Can't quite reach immigration, but dip into reserve to try. */
+        float keepPct = (aPlayer->yearsSinceImmigration >= 3) ? 0.20f : 0.50f;
+        int desperateMax = aPlayer->grain - static_cast<int>(safeReserve * keepPct);
         if (desperateMax > maxFeed) maxFeed = desperateMax;
-        GameLog("  Immigration drought (%d years) — dipping into reserve\n",
-                aPlayer->yearsSinceImmigration);
+        GameLog("  Immigration drought (%d years) — dipping to %d%% reserve\n",
+                aPlayer->yearsSinceImmigration, static_cast<int>(keepPct * 100));
     }
     if (maxFeed < aPlayer->peopleGrainNeed)
         maxFeed = aPlayer->peopleGrainNeed;  /* Always feed at least 100% */
