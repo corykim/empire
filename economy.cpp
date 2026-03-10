@@ -162,9 +162,9 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                     if (playerList[i].diplomacy[pi] > 0.0f &&
                         playerList[i].diplomacy[t] < 0.0f)
                     {
-                        /* Ally attacked my enemy → I become more hostile
-                         * toward that enemy too (solidarity). */
-                        playerList[i].diplomacy[t] -= 0.1f;
+                        /* Solidarity: proportional to how much we like the attacker. */
+                        float solidarity = playerList[i].diplomacy[pi] * 0.3f;
+                        playerList[i].diplomacy[t] -= solidarity;
                         playerList[i].diplomacy[t] = ClampDiplomacy(
                             playerList[i].diplomacy[t]);
                     }
@@ -541,7 +541,7 @@ float ComputeVulnerability(int targetIdx)
         float lossRatio = 1.0f - static_cast<float>(target->soldierCount)
                                  / static_cast<float>(target->soldiersPrevTurn);
         if (lossRatio > 0.3f)
-            vulnerability += lossRatio * 2.0f;
+            vulnerability += lossRatio * 3.0f;
     }
 
     /* Zero soldiers = maximally vulnerable. */

@@ -657,8 +657,14 @@ static void NewYearScreen()
     /* Update year. */
     year++;
 
-    /* Update weather. */
-    weather = RandRange(ArraySize(weatherList));
+    /* Update weather — gentle regression toward the mean (3.5).
+     * After extreme weather, nudge the next year's roll toward center. */
+    int rawWeather = RandRange(ArraySize(weatherList));
+    if (weather > 0) {
+        if (weather <= 2) rawWeather = MIN(6, rawWeather + 1);
+        else if (weather >= 5) rawWeather = MAX(1, rawWeather - 1);
+    }
+    weather = rawWeather;
 
     /* Display the year and weather. */
     char yearTitle[32];
@@ -964,6 +970,30 @@ static void CPUGrainPhase(Player *aPlayer)
 
     /* Trade grain and land via the strategy. */
     cpuStrategies[aPlayer->strategyIndex]->manageGrainTrade(aPlayer);
+
+    /* Buy grain to enable immigration if we have treasury and market grain. */
+    int immigrationTarget = static_cast<int>(aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT)
+                            + aPlayer->armyGrainNeed;
+    if (aPlayer->grain < immigrationTarget && aPlayer->treasury > COST_MARKETPLACE)
+    {
+        int deficit = immigrationTarget - aPlayer->grain;
+        /* Find cheapest seller. */
+        Player *cheapest = nullptr;
+        for (int j = 0; j < COUNTRY_COUNT; j++) {
+            Player *p = &playerList[j];
+            if (p != aPlayer && !p->dead && p->grainForSale > 0)
+                if (!cheapest || p->grainPrice < cheapest->grainPrice)
+                    cheapest = p;
+        }
+        if (cheapest) {
+            int canAfford = static_cast<int>((aPlayer->treasury * 0.3f * (1.0f - GRAIN_MARKUP)) / cheapest->grainPrice);
+            int toBuy = MIN(deficit, MIN(canAfford, cheapest->grainForSale));
+            if (toBuy > 0) {
+                TradeGrain(aPlayer, cheapest, toBuy);
+                GameLog("  Bought %d grain for immigration (treasury: %d)\n", toBuy, aPlayer->treasury);
+            }
+        }
+    }
 
     /* CPU feeds army.  Higher difficulties overfeed for army efficiency,
      * but only if grain exceeds the safe reserve after feeding. */

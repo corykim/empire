@@ -199,7 +199,18 @@ void CPUAttackScreen(Player *aPlayer)
         /* Attack, holding reserve soldiers back.
          * Break if attack couldn't proceed (e.g., not enough soldiers). */
         if (!CPUAttack(aPlayer, targetPlayer, reserve))
+        {
+            /* Can't attack — build hostility for future coordinated strike. */
+            if (targetPlayer != nullptr)
+            {
+                int ti = targetPlayer - playerList;
+                aPlayer->diplomacy[ti] -= 0.15f;
+                aPlayer->diplomacy[ti] = ClampDiplomacy(aPlayer->diplomacy[ti]);
+                GameLog("  Frustrated attack -> diplomacy toward %s decreased\n",
+                        targetPlayer->country->name);
+            }
             break;
+        }
 
         /* Recompute reserve — diplomacy and soldier counts may have changed. */
         reserve = ComputeRetaliationReserve(aPlayer);

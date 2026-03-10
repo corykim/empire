@@ -240,3 +240,112 @@ CPU players use the same economic rules as you. They buy and sell grain, set tax
 CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
 
 All difficulty levels use identical economic formulas. The only difference is decision quality, not rules.
+
+---
+
+## Part 4: The Gory Details
+
+### Harvest
+
+```
+usableLand = land - serfs - 2×nobles - merchants - 2×soldiers - palaces
+usableLand = min(usableLand, 3 × grainReserve)      ← seed cap
+usableLand = min(usableLand, 5 × serfs)              ← labor cap
+harvest    = weather × usableLand × 0.72 + rand(1..500) - foundries × 500
+```
+
+Weather is 1-6 (random, with gentle regression toward the mean). Rats eat 1-30% of stored grain before harvest is added.
+
+### Feeding
+
+- **People need**: 5 per civilian (serfs + merchants), 15 per noble
+- **Army need**: 8 per soldier
+- **Immigration threshold**: feed people > 1.5× their need
+- **Immigration formula**: `sqrt(feed - need) - rand(1.5 × customsTax)`; if positive, `rand(2 × base + 1)` immigrants arrive
+- Of immigrants: 1 in 5 becomes a merchant, 1 in 25 becomes a noble
+
+### Population
+
+| Event | Formula |
+|-------|---------|
+| Births | `rand(population / 9.5)` |
+| Disease | `rand(population / 22)` |
+| Malnutrition (feed < need) | `rand(population / 15)` |
+| Malnutrition (feed < need/2) | `rand(population / 12)` |
+| Starvation (feed < need/2) | `rand(population / 16)` |
+
+### Army
+
+- **Equip ratio**: `(5% + 1.5% per foundry) × civilian population`
+- **Noble leadership**: 20 soldiers per noble
+- **Recruitment cost**: 8 per soldier (from serfs)
+- **Army efficiency**: `10 × (grainFed / grainNeed)`, clamped to 50%-150%
+- **Attacks per year**: `nobles / 4 + 1`
+- **Army upkeep**: 8 per soldier per year (deducted from treasury)
+
+### Revenue
+
+All investment revenues use diminishing returns: `pow(base, 0.9)`.
+
+**Marketplace**: `(12 × (merchants + rand(35) + rand(35)) / (salesTax + 1) + 5) × count`
+
+**Grain Mill**: `(5.8 × (harvest + rand(250)) / (20×incomeTax + 40×salesTax + 150)) × count`
+
+**Foundry**: `(soldiers + rand(150) + 400) × count`
+
+**Shipyard**: `(4×merchants + 9×marketplaces + 15×foundries) × count × weather`
+
+**Sales Tax**: `salesTax × (pow(1.8×merchants + 33×mktRev + 17×millRev + 50×fndRev + 70×shipRev, 0.85) + 5×nobles + serfs) / 100`
+
+**Income Tax**: `pow(incomeTax × (1.3×serfs + 145×nobles + 39×merchants + 99×mkt + 99×mill + 425×fnd + 965×ship) / 100, 0.97)`
+
+### Combat
+
+Each round:
+- **Casualties**: `soldiers/15 + 1` (under 200), `soldiers/8 + 1` (200-1000), `soldiers/5 + 1` (over 1000)
+- **Round winner**: `rand(attackerEfficiency) vs rand(defenderEfficiency)`
+- **Land captured** (on attacker win): `rand(26 × casualties) - rand(casualties + 5)`
+- **Sacking**: triggers if land captured > 1/3 of defender's total land
+- **Overrun**: all defender soldiers (or serfs) eliminated
+- **Serf defense**: 50% efficiency when no soldiers remain
+
+### Trading
+
+- **Grain markup**: 10% on purchases
+- **Grain withdrawal**: 15% spoilage penalty
+- **Land sale**: 5 per acre (max 95% of total land)
+- **Grain price cap**: 5.0 per bushel
+
+### Diplomacy
+
+- **Range**: clamped to [-2, +2]
+- **Peace bonus**: +0.03 per peaceful turn (post-treaty only)
+- **Attack penalty**: `(landTakenPct / 20%) × 4.0`, capped at 4.0
+- **Third-party shift**: `-observerDiplomacyToTarget × scale`; attacking an ally multiplies scale by `(1 + attacker's diplomacy toward target)` (betrayal penalty)
+- **Decay**: all scores × 0.9 per turn
+- **Envy**: `(powerRatio - 1)³ × 1.5` — bypasses military caution
+- **Power score**: `soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000`
+
+### Starting Values
+
+| Resource | Amount |
+|----------|--------|
+| Land | 10,000 acres |
+| Grain | 15,000-25,000 bushels |
+| Treasury | 1,000 |
+| Serfs | 2,000 |
+| Merchants | 25 |
+| Nobles | 1 |
+| Soldiers | 20 |
+| Taxes | Customs 20%, Sales 5%, Income 35% |
+
+### Investment Costs
+
+| Investment | Cost |
+|------------|------|
+| Marketplace | 1,000 |
+| Grain Mill | 2,000 |
+| Palace | 5,000 |
+| Foundry | 7,000 |
+| Shipyard | 8,000 |
+| Soldier | 8 |
