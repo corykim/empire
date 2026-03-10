@@ -397,7 +397,7 @@ int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax)
 {
     /* Expected values for RandRange(n) = (n+1)/2. */
     int expMerchantRand = 18 + 18;  /* RandRange(35) + RandRange(35) */
-    int expHarvestRand = 126;       /* RandRange(250) */
+    int expSerfRand = 301 + 301;    /* RandRange(600) + RandRange(600) */
     int expFoundryRand = 76 + 400;  /* RandRange(150) + 400 */
 
     /* Marketplace revenue. */
@@ -406,12 +406,11 @@ int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax)
     int mktRev = static_cast<int>(
         pow(aPlayer->marketplaceCount * mktPerUnit, 0.9));
 
-    /* Grain mill revenue — benefits from sales tax, hurt by income tax only. */
-    float expSalesBonus = 1.0f + MILL_SALES_BONUS * salesTax;
+    /* Grain mill revenue — serfs operate mills, penalized by income tax. */
     int millPerUnit = static_cast<int>(
-        5.8f * static_cast<float>(aPlayer->grainHarvest + expHarvestRand)
-        * expSalesBonus)
-        / (20 * incomeTax + 150);
+        MILL_REV_MULT * static_cast<float>(aPlayer->serfCount + expSerfRand)
+        / static_cast<float>(incomeTax + 1))
+        + MILL_REV_ADD;
     int millRev = static_cast<int>(
         pow(aPlayer->grainMillCount * millPerUnit, 0.9));
 
@@ -443,7 +442,7 @@ int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax)
                      + 145 * aPlayer->nobleCount
                      + 39 * aPlayer->merchantCount
                      + 99 * aPlayer->marketplaceCount
-                     + 99 * aPlayer->grainMillCount
+                     + INCOMETAX_MILL_MULT * millRev
                      + 425 * aPlayer->foundryCount
                      + 965 * aPlayer->shipyardCount;
     int incomeTaxRev = static_cast<int>(
@@ -659,7 +658,7 @@ PopulationResult ComputePopulation(Player *aPlayer)
     aPlayer->diedStarvation = r.diedStarvation;
 
     /* Immigration (requires feed > 1.5x need). */
-    if (static_cast<float>(aPlayer->peopleGrainFeed) >
+    if (static_cast<float>(aPlayer->peopleGrainFeed) >=
         (IMMIGRATION_FEED_MULT * static_cast<float>(aPlayer->peopleGrainNeed)))
     {
         r.immigrated =
@@ -791,17 +790,14 @@ void ComputeRevenues(Player *aPlayer)
     marketplaceRevenue = aPlayer->marketplaceCount * marketplaceRevenue;
     aPlayer->marketplaceRevenue = pow(marketplaceRevenue, REV_EXP_INVESTMENT);
 
-    /* Grain mill revenue — benefits from sales tax, hurt by income tax only.
-     * Mills process grain into goods that sell at premium when sales tax
-     * inflates commodity prices. */
-    {
-        float salesBonus = 1.0f + MILL_SALES_BONUS * aPlayer->salesTax;
-        grainMillRevenue =
-              static_cast<int>(MILL_REV_MULT * static_cast<float>(
-                  aPlayer->grainHarvest + RandRange(MILL_REV_RAND))
-                  * salesBonus)
-            / (MILL_DIV_INCOME * aPlayer->incomeTax + MILL_DIV_BASE);
-    }
+    /* Grain mill revenue — serfs operate mills, penalized by income tax.
+     * Symmetric with marketplaces (merchants / sales tax). */
+    grainMillRevenue =
+          static_cast<int>(MILL_REV_MULT
+           * static_cast<float>(aPlayer->serfCount
+                                + RandRange(MILL_REV_RAND) + RandRange(MILL_REV_RAND))
+           / static_cast<float>(aPlayer->incomeTax + 1))
+        + MILL_REV_ADD;
     grainMillRevenue = aPlayer->grainMillCount * grainMillRevenue;
     aPlayer->grainMillRevenue = pow(grainMillRevenue, REV_EXP_INVESTMENT);
 
@@ -848,7 +844,7 @@ void ComputeRevenues(Player *aPlayer)
         + INCOMETAX_NOBLE_MULT * aPlayer->nobleCount
         + INCOMETAX_MERCHANT_MULT * aPlayer->merchantCount
         + INCOMETAX_MKT_MULT * aPlayer->marketplaceCount
-        + INCOMETAX_MILL_MULT * aPlayer->grainMillCount
+        + INCOMETAX_MILL_MULT * aPlayer->grainMillRevenue
         + INCOMETAX_FOUNDRY_MULT * aPlayer->foundryCount
         + INCOMETAX_SHIPYARD_MULT * aPlayer->shipyardCount;
     incomeTaxRevenue = aPlayer->incomeTax * incomeTaxRevenue / 100;

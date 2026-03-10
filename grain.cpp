@@ -572,8 +572,10 @@ static void FeedCountry(Player *aPlayer)
             int plusCount = 0;
             for (int c = 0; input[c] == '+'; c++)
                 plusCount++;
-            /* (need * (100 + 50*plusCount) + 99) / 100, rounded up. */
-            grainToFeed = (aPlayer->peopleGrainNeed * (100 + 50 * plusCount) + 99) / 100;
+            /* Round up, and ensure at least 1 above exact threshold
+             * so immigration triggers reliably with '+'. */
+            int exact = aPlayer->peopleGrainNeed * (100 + 50 * plusCount) / 100;
+            grainToFeed = exact + 1;
         }
         else
             grainToFeed = ParseNum(input);

@@ -116,15 +116,13 @@ constexpr int   MKT_REV_ADD       = 5;       /* Base per marketplace */
 constexpr int   MKT_REV_RAND      = 35;      /* Random merchant range (×2) */
 
 /* Revenue multipliers — grain mill.
- * Mill revenue benefits from sales tax (processed grain sells at premium)
- * and is hurt only by income tax.  This creates a distinct tax optimization:
- * mill-heavy players prefer high sales / low income tax, while marketplace
- * players prefer low sales / high income tax. */
-constexpr float MILL_REV_MULT     = 5.8f;    /* Harvest contribution */
-constexpr int   MILL_REV_RAND     = 250;     /* Random harvest range */
-constexpr int   MILL_DIV_INCOME   = 20;      /* Income tax divisor component */
-constexpr int   MILL_DIV_BASE     = 150;     /* Base divisor component */
-constexpr float MILL_SALES_BONUS  = 0.08f;   /* +8% mill revenue per sales tax point */
+ * Mill revenue uses serf count as numerator (serfs operate the mills) and
+ * income tax as denominator — symmetric with marketplaces using merchants
+ * and sales tax.  At 2× the cost of a marketplace, per-unit revenue is
+ * calibrated to 2× marketplace for equal ROI per gold invested. */
+constexpr float MILL_REV_MULT     = 0.50f;   /* Serf contribution (float: serfs >> merchants) */
+constexpr int   MILL_REV_RAND     = 600;     /* Random serf range (×2) */
+constexpr int   MILL_REV_ADD      = 13;      /* Base per grain mill */
 
 /* Revenue multipliers — foundry. */
 constexpr int   FOUNDRY_REV_RAND  = 150;     /* Random range */
@@ -137,7 +135,7 @@ constexpr int   SHIP_MULT_FOUNDRY     = 15;  /* Per foundry */
 
 /* Revenue multipliers — sales tax base. */
 constexpr float SALESTAX_MERCHANT_MULT   = 1.8f;
-constexpr int   SALESTAX_MKT_MULT        = 33;
+constexpr int   SALESTAX_MKT_MULT        = 140;
 constexpr int   SALESTAX_MILL_MULT       = 17;
 constexpr int   SALESTAX_FOUNDRY_MULT    = 50;
 constexpr int   SALESTAX_SHIPYARD_MULT   = 70;
@@ -148,7 +146,7 @@ constexpr float INCOMETAX_SERF_MULT      = 1.3f;
 constexpr int   INCOMETAX_NOBLE_MULT     = 145;
 constexpr int   INCOMETAX_MERCHANT_MULT  = 39;
 constexpr int   INCOMETAX_MKT_MULT       = 99;
-constexpr int   INCOMETAX_MILL_MULT      = 99;
+constexpr int   INCOMETAX_MILL_MULT      = 55;      /* × mill REVENUE (feedback loop) */
 constexpr int   INCOMETAX_FOUNDRY_MULT   = 425;
 constexpr int   INCOMETAX_SHIPYARD_MULT  = 965;
 

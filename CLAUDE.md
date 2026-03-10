@@ -138,7 +138,7 @@ All other game-wide constants in `economy.h`, organized by category:
 - **Starting values**: `STARTING_LAND`=10000, `STARTING_GRAIN_BASE`=15000, `STARTING_TREASURY`=1000, etc.
 - **Investment costs**: `COST_MARKETPLACE`=1000 through `COST_PALACE`=5000
 - **Grain/farming**: `GRAIN_YIELD_MULT`=0.72, `MILL_YIELD_BONUS`=0.08 (per sqrt(mills), weather-scaled), `MILL_SEED_BONUS`=1 (per sqrt(mills)), `GRAIN_PER_PERSON`=5, `GRAIN_PER_SOLDIER`=8, `FOUNDRY_POLLUTION`=500, etc.
-- **Grain mill revenue**: `MILL_SALES_BONUS`=0.08 (sales tax boosts mill revenue instead of penalizing it). Creates distinct tax optimization: mill-heavy=high sales/low income, marketplace-heavy=low sales/high income.
+- **Grain mill revenue**: Uses serf count as numerator, income tax as denominator — symmetric with marketplaces (merchants / sales tax). Calibrated for equal ROI per gold vs marketplaces. Tax optimization: mill-heavy=low income, marketplace-heavy=low sales.
 - **Trading**: `GRAIN_MARKUP`=10%, `GRAIN_WITHDRAW_FEE`=15%, `GRAIN_PRICE_BASE`=0.50, `LAND_SELL_PRICE`=5.0
 - **Population**: birth/death/immigration rates and ratios
 - **Military**: `EQUIP_RATIO_BASE`, `NOBLE_LEADERSHIP`=20, `MAX_ATTACK_CHANCE`=95

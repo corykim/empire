@@ -39,7 +39,7 @@ You collect tax revenue and investment income, then spend your treasury on build
 | Investment | Cost | What It Does |
 |------------|------|--------------|
 | Marketplace | 1,000 | Generates revenue based on your merchant count. Also attracts new merchants. |
-| Grain Mill | 2,000 | Boosts harvest yield and seeding efficiency. Generates revenue that benefits from sales tax. Best insurance against bad weather. |
+| Grain Mill | 2,000 | Boosts harvest yield and seeding efficiency. Generates revenue based on your serf count, penalized by income tax. Best insurance against bad weather. |
 | Foundry | 7,000 | Generates revenue based on your army size. Also lets you equip more soldiers. Reduces grain harvest by 500 bushels per foundry. |
 | Shipyard | 8,000 | Generates revenue based on your merchants, marketplaces, and foundries. Affected by weather. |
 | Soldiers | 8 each | Fight battles. Cost 8/year upkeep plus 8 bushels grain. Limited by serfs, nobles, foundries, and treasury. |
@@ -48,7 +48,7 @@ You collect tax revenue and investment income, then spend your treasury on build
 You also set three tax rates:
 
 - **Customs tax** (0-50%): Taxes immigrants. Higher customs discourages immigration.
-- **Sales tax** (0-20%): Taxes commerce. Higher sales tax reduces marketplace revenue but *increases* grain mill revenue.
+- **Sales tax** (0-20%): Taxes commerce. Higher sales tax reduces marketplace revenue.
 - **Income tax** (0-35%): Taxes everyone based on your population and investments. Higher income tax reduces grain mill revenue.
 
 **4. Attack**
@@ -87,7 +87,7 @@ Set your taxes to moderate levels. A good starting point:
 - Sales: 5-8%
 - Income: 25-30%
 
-Resist the urge to raise taxes too high. Sales tax reduces marketplace revenue (though it boosts grain mill revenue). High customs tax discourages immigration, which is your main source of population growth (and nobles).
+Resist the urge to raise taxes too high. Sales tax reduces marketplace revenue and income tax reduces grain mill revenue. High customs tax discourages immigration, which is your main source of population growth (and nobles).
 
 **Overfeed your people.** Feed them at least 1.5x their requirement. This triggers immigration, which brings new serfs, merchants, and nobles. Immigration is the only way to grow your noble count without building palaces, and nobles are the bottleneck for your military.
 
@@ -116,8 +116,8 @@ Keep building soldiers between wars. Don't leave yourself vulnerable while your 
 ### Key Principles
 
 - **Diversify your investments.** No single building type wins alone. The strongest economy combines grain mills (grain sustainability), marketplaces (trade revenue), and shipyards (multiplier). Pure marketplace or pure mill strategies both lose to diversified ones.
-- **Build grain mills early.** They boost your harvest yield and seeding efficiency, keeping your grain supply sustainable as your population grows. They also generate revenue that benefits from sales tax. A few mills early can prevent the grain crisis that cripples pure marketplace economies.
-- **Match your taxes to your buildings.** Mill-heavy economies thrive with high sales tax / low income tax. Marketplace-heavy economies prefer low sales tax / high income tax. The CPU tax optimizer discovers this automatically.
+- **Build grain mills early.** They boost your harvest yield and seeding efficiency, keeping your grain supply sustainable as your population grows. They also generate revenue based on your serf count. A few mills early can prevent the grain crisis that cripples pure marketplace economies.
+- **Match your taxes to your buildings.** Mill-heavy economies thrive with low income tax. Marketplace-heavy economies prefer low sales tax. The CPU tax optimizer discovers this automatically.
 - **Overfeed for immigration.** Feed your people 1.5-2x their need. The immigrants pay for themselves.
 - **Foundries are a tradeoff.** They enable soldiers and generate revenue, but each one costs you 500 bushels of grain per year. Don't build more than your harvest can absorb.
 - **Nobles are the bottleneck.** Without nobles you can't recruit soldiers. Build palaces and keep customs low for immigration.
@@ -191,7 +191,7 @@ Revenue is computed once per year at the start of your investment phase. Each in
 
 **Marketplace revenue** scales with your merchant count and number of marketplaces. It is divided by (sales tax + 1), so higher sales tax directly reduces it.
 
-**Grain mill revenue** scales with your grain harvest and number of mills. Unlike other investments, mill revenue *benefits* from sales tax (+8% per point) while income tax still reduces it. This creates a distinct tax strategy: mill-heavy economies prefer high sales tax / low income tax, the opposite of marketplace economies.
+**Grain mill revenue** scales with your serf count and number of mills. It is divided by (income tax + 1), so higher income tax directly reduces it — symmetric with how sales tax reduces marketplace revenue. This creates a distinct tax strategy: mill-heavy economies prefer low income tax, while marketplace economies prefer low sales tax.
 
 **Foundry revenue** scales with your soldier count and number of foundries. Tax rates don't affect it directly.
 
@@ -207,7 +207,7 @@ Revenue is computed once per year at the start of your investment phase. Each in
 
 ### The Tax Paradox
 
-Higher tax rates don't always mean more revenue. Sales tax appears in the denominator of marketplace revenue, while income tax appears in the denominator of grain mill revenue. The twist: sales tax *boosts* grain mill revenue. This means different investment mixes have different optimal tax strategies. A marketplace-heavy economy wants low sales / high income tax. A mill-heavy economy wants high sales / low income tax. A balanced economy finds the sweet spot in between.
+Higher tax rates don't always mean more revenue. Sales tax appears in the denominator of marketplace revenue, while income tax appears in the denominator of grain mill revenue. The two are symmetric: marketplaces use merchants as the numerator and sales tax as the penalty, while mills use serfs as the numerator and income tax as the penalty. A marketplace-heavy economy wants low sales / high income tax. A mill-heavy economy wants low income / high sales tax. A balanced economy finds the sweet spot in between. Additionally, marketplace revenue feeds back into the sales tax base, and mill revenue feeds back into the income tax base — creating a self-balancing loop where the tax you want to lower also benefits from the revenue it suppresses.
 
 ### Diplomacy
 
@@ -292,15 +292,15 @@ All investment revenues use diminishing returns: `pow(base, 0.9)`.
 
 **Marketplace**: `(12 × (merchants + rand(35) + rand(35)) / (salesTax + 1) + 5) × count`
 
-**Grain Mill**: `(5.8 × (harvest + rand(250)) × (1 + 0.08×salesTax) / (20×incomeTax + 150)) × count`
+**Grain Mill**: `(0.50 × (serfs + rand(600) + rand(600)) / (incomeTax + 1) + 13) × count`
 
 **Foundry**: `(soldiers + rand(150) + 400) × count`
 
 **Shipyard**: `(4×merchants + 9×marketplaces + 15×foundries) × count × weather`
 
-**Sales Tax**: `salesTax × (pow(1.8×merchants + 33×mktRev + 17×millRev + 50×fndRev + 70×shipRev, 0.85) + 5×nobles + serfs) / 100`
+**Sales Tax**: `salesTax × (pow(1.8×merchants + 140×mktRev + 17×millRev + 50×fndRev + 70×shipRev, 0.85) + 5×nobles + serfs) / 100`
 
-**Income Tax**: `pow(incomeTax × (1.3×serfs + 145×nobles + 39×merchants + 99×mkt + 99×mill + 425×fnd + 965×ship) / 100, 0.97)`
+**Income Tax**: `pow(incomeTax × (1.3×serfs + 145×nobles + 39×merchants + 99×mkt + 55×millRev + 425×fnd + 965×ship) / 100, 0.97)`
 
 ### Combat
 
