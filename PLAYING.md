@@ -39,7 +39,7 @@ You collect tax revenue and investment income, then spend your treasury on build
 | Investment | Cost | What It Does |
 |------------|------|--------------|
 | Marketplace | 1,000 | Generates revenue based on your merchant count. Also attracts new merchants. |
-| Grain Mill | 2,000 | Generates revenue based on your grain harvest. |
+| Grain Mill | 2,000 | Boosts harvest yield and seeding efficiency. Generates revenue that benefits from sales tax. Best insurance against bad weather. |
 | Foundry | 7,000 | Generates revenue based on your army size. Also lets you equip more soldiers. Reduces grain harvest by 500 bushels per foundry. |
 | Shipyard | 8,000 | Generates revenue based on your merchants, marketplaces, and foundries. Affected by weather. |
 | Soldiers | 8 each | Fight battles. Cost 8/year upkeep plus 8 bushels grain. Limited by serfs, nobles, foundries, and treasury. |
@@ -48,7 +48,7 @@ You collect tax revenue and investment income, then spend your treasury on build
 You also set three tax rates:
 
 - **Customs tax** (0-50%): Taxes immigrants. Higher customs discourages immigration.
-- **Sales tax** (0-20%): Taxes commerce. Higher sales tax reduces marketplace and grain mill revenue.
+- **Sales tax** (0-20%): Taxes commerce. Higher sales tax reduces marketplace revenue but *increases* grain mill revenue.
 - **Income tax** (0-35%): Taxes everyone based on your population and investments. Higher income tax reduces grain mill revenue.
 
 **4. Attack**
@@ -87,7 +87,7 @@ Set your taxes to moderate levels. A good starting point:
 - Sales: 5-8%
 - Income: 25-30%
 
-Resist the urge to raise taxes too high. Sales tax directly reduces marketplace and grain mill revenue. High customs tax discourages immigration, which is your main source of population growth (and nobles).
+Resist the urge to raise taxes too high. Sales tax reduces marketplace revenue (though it boosts grain mill revenue). High customs tax discourages immigration, which is your main source of population growth (and nobles).
 
 **Overfeed your people.** Feed them at least 1.5x their requirement. This triggers immigration, which brings new serfs, merchants, and nobles. Immigration is the only way to grow your noble count without building palaces, and nobles are the bottleneck for your military.
 
@@ -115,9 +115,10 @@ Keep building soldiers between wars. Don't leave yourself vulnerable while your 
 
 ### Key Principles
 
-- **Marketplaces first, always.** They're the engine that funds everything else.
+- **Diversify your investments.** No single building type wins alone. The strongest economy combines grain mills (grain sustainability), marketplaces (trade revenue), and shipyards (multiplier). Pure marketplace or pure mill strategies both lose to diversified ones.
+- **Build grain mills early.** They boost your harvest yield and seeding efficiency, keeping your grain supply sustainable as your population grows. They also generate revenue that benefits from sales tax. A few mills early can prevent the grain crisis that cripples pure marketplace economies.
+- **Match your taxes to your buildings.** Mill-heavy economies thrive with high sales tax / low income tax. Marketplace-heavy economies prefer low sales tax / high income tax. The CPU tax optimizer discovers this automatically.
 - **Overfeed for immigration.** Feed your people 1.5-2x their need. The immigrants pay for themselves.
-- **Don't over-tax.** High taxes feel productive but they quietly kill your marketplace and mill revenue.
 - **Foundries are a tradeoff.** They enable soldiers and generate revenue, but each one costs you 500 bushels of grain per year. Don't build more than your harvest can absorb.
 - **Nobles are the bottleneck.** Without nobles you can't recruit soldiers. Build palaces and keep customs low for immigration.
 - **Sell surplus grain.** If your reserves are much larger than your needs, list grain on the market. Grain is valuable — surplus sales can fund your early marketplace expansion.
@@ -143,10 +144,10 @@ Your land serves two purposes: it provides space for your people and buildings, 
 - Each palace section takes 1 acre
 
 Usable land is further capped by two constraints:
-- You can only seed 3 acres per bushel of grain in reserve
+- You can only seed 3 acres per bushel of grain in reserve (grain mills increase this: +1 per sqrt(mills))
 - Each serf can only farm 5 acres
 
-**Harvest** depends on weather (rated 1-6, randomly chosen each year) and usable land. Each foundry reduces your harvest by 500 bushels, representing the pollution and land disruption from industrial activity.
+**Harvest** depends on weather (rated 1-6, with mild regression toward the mean) and usable land. Grain mills boost the yield multiplier with diminishing returns (+0.08 per sqrt(mills)), and the bonus is stronger in bad weather — making mills valuable insurance against drought. Each foundry reduces your harvest by 500 bushels, representing the pollution and land disruption from industrial activity.
 
 ### Population Growth
 
@@ -190,7 +191,7 @@ Revenue is computed once per year at the start of your investment phase. Each in
 
 **Marketplace revenue** scales with your merchant count and number of marketplaces. It is divided by (sales tax + 1), so higher sales tax directly reduces it.
 
-**Grain mill revenue** scales with your grain harvest and number of mills. It is divided by a factor that includes both income tax and sales tax, so both reduce it.
+**Grain mill revenue** scales with your grain harvest and number of mills. Unlike other investments, mill revenue *benefits* from sales tax (+8% per point) while income tax still reduces it. This creates a distinct tax strategy: mill-heavy economies prefer high sales tax / low income tax, the opposite of marketplace economies.
 
 **Foundry revenue** scales with your soldier count and number of foundries. Tax rates don't affect it directly.
 
@@ -206,7 +207,7 @@ Revenue is computed once per year at the start of your investment phase. Each in
 
 ### The Tax Paradox
 
-Higher tax rates don't always mean more revenue. Sales tax and income tax both appear in the denominators of marketplace and grain mill revenue formulas. Raising them increases tax income but reduces investment income. The optimal balance is moderate rates that capture some tax without crushing your investments.
+Higher tax rates don't always mean more revenue. Sales tax appears in the denominator of marketplace revenue, while income tax appears in the denominator of grain mill revenue. The twist: sales tax *boosts* grain mill revenue. This means different investment mixes have different optimal tax strategies. A marketplace-heavy economy wants low sales / high income tax. A mill-heavy economy wants high sales / low income tax. A balanced economy finds the sweet spot in between.
 
 ### Diplomacy
 
@@ -248,13 +249,15 @@ All difficulty levels use identical economic formulas. The only difference is de
 ### Harvest
 
 ```
+yieldMult  = 0.72 + 0.08 × sqrt(mills) × (7 - weather) / 4
+seedRate   = 3 + floor(sqrt(mills))
 usableLand = land - serfs - 2×nobles - merchants - 2×soldiers - palaces
-usableLand = min(usableLand, 3 × grainReserve)      ← seed cap
-usableLand = min(usableLand, 5 × serfs)              ← labor cap
-harvest    = weather × usableLand × 0.72 + rand(1..500) - foundries × 500
+usableLand = min(usableLand, seedRate × grainReserve) ← seed cap
+usableLand = min(usableLand, 5 × serfs)               ← labor cap
+harvest    = weather × usableLand × yieldMult + rand(1..500) - foundries × 500
 ```
 
-Weather is 1-6 (random, with gentle regression toward the mean). Rats eat 1-30% of stored grain before harvest is added.
+Weather is 1-6 (random, with mild regression — only weather 1 or 6 nudge the next year's roll). Rats eat 1-30% of stored grain before harvest is added. The mill yield bonus is strongest in bad weather (×1.5 at weather 1) and weakest in good weather (×0.25 at weather 6), making mills insurance against drought.
 
 ### Feeding
 
@@ -289,7 +292,7 @@ All investment revenues use diminishing returns: `pow(base, 0.9)`.
 
 **Marketplace**: `(12 × (merchants + rand(35) + rand(35)) / (salesTax + 1) + 5) × count`
 
-**Grain Mill**: `(5.8 × (harvest + rand(250)) / (20×incomeTax + 40×salesTax + 150)) × count`
+**Grain Mill**: `(5.8 × (harvest + rand(250)) × (1 + 0.08×salesTax) / (20×incomeTax + 150)) × count`
 
 **Foundry**: `(soldiers + rand(150) + 400) × count`
 

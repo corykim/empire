@@ -406,10 +406,12 @@ int ComputeExpectedRevenue(Player *aPlayer, int salesTax, int incomeTax)
     int mktRev = static_cast<int>(
         pow(aPlayer->marketplaceCount * mktPerUnit, 0.9));
 
-    /* Grain mill revenue. */
+    /* Grain mill revenue — benefits from sales tax, hurt by income tax only. */
+    float expSalesBonus = 1.0f + MILL_SALES_BONUS * salesTax;
     int millPerUnit = static_cast<int>(
-        5.8f * static_cast<float>(aPlayer->grainHarvest + expHarvestRand))
-        / (20 * incomeTax + 40 * salesTax + 150);
+        5.8f * static_cast<float>(aPlayer->grainHarvest + expHarvestRand)
+        * expSalesBonus)
+        / (20 * incomeTax + 150);
     int millRev = static_cast<int>(
         pow(aPlayer->grainMillCount * millPerUnit, 0.9));
 
@@ -479,13 +481,36 @@ void OptimizeTaxRates(Player *aPlayer)
 }
 
 
+float EffectiveYieldMult(Player *aPlayer)
+{
+    /* Mill yield bonus scales inversely with weather: mills matter most
+     * during poor harvests (insurance against bad weather streaks).
+     * At weather=1: bonus × 1.5.  At weather=4 (avg): bonus × 0.75.
+     * At weather=6: bonus × 0.25.  Weather 0 = pre-game, use neutral 1.0. */
+    float weatherScale = (weather > 0)
+                         ? static_cast<float>(7 - weather) / 4.0f
+                         : 1.0f;
+    return GRAIN_YIELD_MULT
+           + MILL_YIELD_BONUS * sqrtf(static_cast<float>(aPlayer->grainMillCount))
+             * weatherScale;
+}
+
+
+int EffectiveSeedRate(Player *aPlayer)
+{
+    return GRAIN_SEED_PER_ACRE
+           + static_cast<int>(MILL_SEED_BONUS
+             * sqrtf(static_cast<float>(aPlayer->grainMillCount)));
+}
+
+
 int ComputeWorstCaseHarvest(Player *aPlayer)
 {
     int harvest = static_cast<int>(
         1 * (aPlayer->land - aPlayer->serfCount
              - 2 * aPlayer->nobleCount - aPlayer->merchantCount
              - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
-        * GRAIN_YIELD_MULT);
+        * EffectiveYieldMult(aPlayer));
     return (harvest > 0) ? harvest : 0;
 }
 
@@ -569,16 +594,19 @@ void ComputeGrainPhase(Player *aPlayer)
                  - aPlayer->merchantCount
                  - (2 * aPlayer->soldierCount);
 
-    /* Each bushel of grain can seed 3 acres. */
-    if (usableLand > (GRAIN_SEED_PER_ACRE * aPlayer->grain))
-        usableLand = GRAIN_SEED_PER_ACRE * aPlayer->grain;
+    /* Each bushel of grain can seed acres based on mill count. */
+    {
+        int seedRate = EffectiveSeedRate(aPlayer);
+        if (usableLand > (seedRate * aPlayer->grain))
+            usableLand = seedRate * aPlayer->grain;
+    }
 
     /* Each serf can farm 5 acres. */
     if (usableLand > (ACRES_PER_SERF * aPlayer->serfCount))
         usableLand = ACRES_PER_SERF * aPlayer->serfCount;
 
     /* Harvest. */
-    aPlayer->grainHarvest =   (weather * usableLand * GRAIN_YIELD_MULT)
+    aPlayer->grainHarvest =   (weather * usableLand * EffectiveYieldMult(aPlayer))
                             + RandRange(FOUNDRY_POLLUTION)
                             - (aPlayer->foundryCount * FOUNDRY_POLLUTION);
     if (aPlayer->grainHarvest < 0)
@@ -763,11 +791,17 @@ void ComputeRevenues(Player *aPlayer)
     marketplaceRevenue = aPlayer->marketplaceCount * marketplaceRevenue;
     aPlayer->marketplaceRevenue = pow(marketplaceRevenue, REV_EXP_INVESTMENT);
 
-    /* Grain mill revenue. */
-    grainMillRevenue =
-          static_cast<int>(MILL_REV_MULT * static_cast<float>(
-              aPlayer->grainHarvest + RandRange(MILL_REV_RAND)))
-        / (MILL_DIV_INCOME * aPlayer->incomeTax + MILL_DIV_SALES * aPlayer->salesTax + MILL_DIV_BASE);
+    /* Grain mill revenue — benefits from sales tax, hurt by income tax only.
+     * Mills process grain into goods that sell at premium when sales tax
+     * inflates commodity prices. */
+    {
+        float salesBonus = 1.0f + MILL_SALES_BONUS * aPlayer->salesTax;
+        grainMillRevenue =
+              static_cast<int>(MILL_REV_MULT * static_cast<float>(
+                  aPlayer->grainHarvest + RandRange(MILL_REV_RAND))
+                  * salesBonus)
+            / (MILL_DIV_INCOME * aPlayer->incomeTax + MILL_DIV_BASE);
+    }
     grainMillRevenue = aPlayer->grainMillCount * grainMillRevenue;
     aPlayer->grainMillRevenue = pow(grainMillRevenue, REV_EXP_INVESTMENT);
 

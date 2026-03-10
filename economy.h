@@ -68,8 +68,10 @@ constexpr int COST_SOLDIER     = 8;
 constexpr int COST_PALACE      = 5000;
 
 /* Grain and farming. */
-constexpr float GRAIN_YIELD_MULT    = 0.72f;  /* Harvest = weather * land * this */
+constexpr float GRAIN_YIELD_MULT    = 0.72f;  /* Base harvest = weather * land * this */
+constexpr float MILL_YIELD_BONUS    = 0.08f;  /* Yield bonus per sqrt(grain mill count) */
 constexpr int   GRAIN_SEED_PER_ACRE = 3;      /* Acres that can be seeded per bushel */
+constexpr int   MILL_SEED_BONUS     = 1;      /* Extra seed acres per sqrt(grain mill count) */
 constexpr int   ACRES_PER_SERF      = 5;      /* Max acres one serf can farm */
 constexpr int   GRAIN_PER_PERSON    = 5;      /* Bushels per civilian per year */
 constexpr int   GRAIN_PER_NOBLE_MULT = 3;     /* Nobles need this × GRAIN_PER_PERSON */
@@ -113,12 +115,16 @@ constexpr int   MKT_REV_MULT      = 12;      /* Merchant contribution */
 constexpr int   MKT_REV_ADD       = 5;       /* Base per marketplace */
 constexpr int   MKT_REV_RAND      = 35;      /* Random merchant range (×2) */
 
-/* Revenue multipliers — grain mill. */
+/* Revenue multipliers — grain mill.
+ * Mill revenue benefits from sales tax (processed grain sells at premium)
+ * and is hurt only by income tax.  This creates a distinct tax optimization:
+ * mill-heavy players prefer high sales / low income tax, while marketplace
+ * players prefer low sales / high income tax. */
 constexpr float MILL_REV_MULT     = 5.8f;    /* Harvest contribution */
 constexpr int   MILL_REV_RAND     = 250;     /* Random harvest range */
 constexpr int   MILL_DIV_INCOME   = 20;      /* Income tax divisor component */
-constexpr int   MILL_DIV_SALES    = 40;      /* Sales tax divisor component */
 constexpr int   MILL_DIV_BASE     = 150;     /* Base divisor component */
+constexpr float MILL_SALES_BONUS  = 0.08f;   /* +8% mill revenue per sales tax point */
 
 /* Revenue multipliers — foundry. */
 constexpr int   FOUNDRY_REV_RAND  = 150;     /* Random range */
@@ -371,8 +377,28 @@ float ComputeVulnerability(int targetIdx);
 
 
 /*
+ * Compute the effective grain yield multiplier for a player, including
+ * the base yield plus a diminishing bonus per grain mill (sqrt scaling).
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+float EffectiveYieldMult(Player *aPlayer);
+
+
+/*
+ * Compute the effective seed rate for a player (acres per bushel),
+ * including a diminishing bonus per grain mill (sqrt scaling).
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+int EffectiveSeedRate(Player *aPlayer);
+
+
+/*
  * Compute the worst-case harvest for a player: weather=1, no seed/serf
- * limits, just raw land minus occupied space times GRAIN_YIELD_MULT.
+ * limits, just raw land minus occupied space times effective yield.
  * Returns 0 if the result would be negative.
  *
  *   aPlayer                Player to evaluate.

@@ -675,8 +675,8 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     if (boughtAnyPalaces)
         ApplyPalaceBonus(aPlayer);
 
-    /* Grain mills — only if we had a grain surplus and proportional to farmland. */
-    if (aPlayer->grainHarvest > aPlayer->peopleGrainNeed + aPlayer->armyGrainNeed)
+    /* Grain mills — proportional to farmland.  Mills boost harvest yield,
+     * so grain-starved CPUs should invest in them to recover. */
     {
         int usableLand = aPlayer->land - aPlayer->serfCount
                          - 2 * aPlayer->nobleCount - aPlayer->merchantCount

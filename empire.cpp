@@ -657,12 +657,14 @@ static void NewYearScreen()
     /* Update year. */
     year++;
 
-    /* Update weather — gentle regression toward the mean (3.5).
-     * After extreme weather, nudge the next year's roll toward center. */
+    /* Update weather — mild regression toward the mean (3.5).
+     * Only the most extreme weather (1 or 6) nudges the next roll,
+     * so bad/good streaks can persist longer.  This makes grain mills
+     * more valuable as insurance against sustained poor harvests. */
     int rawWeather = RandRange(ArraySize(weatherList));
     if (weather > 0) {
-        if (weather <= 2) rawWeather = MIN(6, rawWeather + 1);
-        else if (weather >= 5) rawWeather = MAX(1, rawWeather - 1);
+        if (weather == 1) rawWeather = MIN(6, rawWeather + 1);
+        else if (weather == 6) rawWeather = MAX(1, rawWeather - 1);
     }
     weather = rawWeather;
 
