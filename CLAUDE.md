@@ -89,7 +89,7 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`.
 
 **Tuning constants** (in `economy.h`):
-`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`
+`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`, `CPU_MIN_PLANTING_RESERVE`, `CPU_MIN_ATTACK_RATIO`, `CPU_LEADER_POWER_MULT`, `CPU_LEADER_ATTACK_BOOST`, `CPU_LEADER_GUNS_BOOST`, `CPU_TURTLE_POWER_RATIO`, `CPU_OPENING_YEARS`
 
 **Key helpers:**
 - `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks
@@ -102,6 +102,8 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - `ComputeVulnerability(targetIdx)` — scores recent losses, zero soldiers, low absolute count
 - `ComputeExpectedRevenue(player, salesTax, incomeTax)` — deterministic revenue prediction
 - `OptimizeTaxRates(player)` — brute-force 756 combinations for optimal sales/income rates
+- `ComputeMarketplaceROI(player)`, `ComputeMillROI(player)` — marginal revenue per gold for next building
+- `ComputeAverageSurvivorPower()`, `FindLeaderIdx()` — anti-leader coordination helpers
 - `LogAllDiplomacy(label)`, `LogPlayerDiplomacy(player)` — structured logging
 
 ### CPU Turn Architecture
@@ -110,15 +112,20 @@ CPU turns follow: Grain → Population → **Military Planning** → Investments
 
 **Military Planning** (`ComputeDesiredTroopStrength`): Runs before investments to estimate army needs. Sets `player->desiredTroops = reserve + attackTroops`.
 
-**Investments** (`cpuInvest`): Guns-vs-butter split based on aggregate diplomacy. `gunsPct = 50 - avgDiplomacy * 30`, clamped to [20%, 80%]. Guns budget buys palaces/foundries (whichever bottlenecks troop capacity). Butter buys economic infrastructure normally.
+**Investments** (`cpuInvest`): Guns-vs-butter split based on aggregate diplomacy. `gunsPct = 50 - avgDiplomacy * 30`, clamped to [20%, 80%]. Anti-leader boost: +15% guns when any player exceeds 2× average power. During opening years (1-3), butter budget is split by per-CPU capital allocation (market/mill/military percentages). After the opening, CPUs compare marginal mill vs marketplace ROI (`ComputeMillROI`, `ComputeMarketplaceROI`) and buy whichever is better. Guns budget buys palaces/foundries (whichever bottlenecks troop capacity).
+
+**Opening Capital Allocation**: Each CPU gets random market/mill/military percentages on setup, biased toward mills by difficulty (3.5× mill weight at L5, uniform at L0). CPUs sell up to 25% of land on turn 1 to fund their allocation. ~72% of Machiavelli CPUs go mill-heavy; ~28% try market or military openings for diversity.
 
 **Attack** (`selectTargetByDiplomacy`): Unified decision combining:
 1. **Diplomacy weight**: `max(0.01, 1 - score)`, amplified by weakness for enemies. Military caution penalty applied only to this component.
-2. **Envy**: `(targetPower/attackerPower - 1)³ × ENVY_SCALE` — cubic growth, bypasses caution entirely. CPUs will send suicide raids to weaken dominant players.
-3. **Theory of mind**: `SimulateAttackOutcome` predicts diplomatic consequences and retaliation
-4. **Barbarians**: Weighted by attacker's military strength, competes in the same pool
-5. **Error blend**: `w = w * (1 - err/100) + 1.0 * (err/100)` — computed from continuous `cpuDifficulty`
-6. **Attack probability**: `effectiveChance = aggression * maxWeight`, capped at 95%
+2. **Envy**: `(targetPower/attackerPower - 1)³ × ENVY_SCALE` — cubic growth, bypasses caution entirely.
+3. **Anti-leader boost**: 1.5× weight when target exceeds 2× average power and CPU has negative diplomacy toward them.
+4. **Theory of mind**: `SimulateAttackOutcome` predicts diplomatic consequences and retaliation
+5. **Barbarians**: Weighted by attacker's military strength, competes in the same pool
+6. **Error blend**: `w = w * (1 - err/100) + 1.0 * (err/100)` — computed from continuous `cpuDifficulty`
+7. **Attack probability**: `effectiveChance = aggression * maxWeight`, capped at 95%
+
+**Attack safeguards**: Minimum force threshold (25% of estimated target strength, `CPU_MIN_ATTACK_RATIO`). Garrison floor keeps 25% of army as defense. Nemesis exception: all-in allowed when target has diplomacy ≤ -1.9, 1.5× power advantage, and allied backing. Defensive turtling: skip attacks entirely when outmatched 3:1+ with <50 soldiers (`CPU_TURTLE_POWER_RATIO`).
 
 CPUs attack multiple times per turn (up to `nobles/4 + 1`), re-evaluating targets and reserves after each battle.
 
@@ -151,6 +158,7 @@ Additional globals in `empire.h` / `empire.cpp`:
 - `Player::diplomacy[COUNTRY_COUNT]` — per-player scores toward each other player
 - `Player::attackedTargets` — bitmask of players attacked this turn (for post-turn updates)
 - `Player::desiredTroops` — military planning target, set before investments phase
+- `Player::openMarketPct`, `openMillPct`, `openMilitaryPct` — opening capital allocation (set once at game start, sums to 100)
 
 ## Conventions
 
@@ -185,7 +193,10 @@ Additional globals in `empire.h` / `empire.cpp`:
 - Fog of war is intentional — don't show enemy soldier counts on attack screen
 - Combat delay: mathematical curves only (`37.5ms * sqrt(smaller_force)`), recalculated each round
 - Message delays scale by word count via `ShowMessage()`, never below DELAY_TIME (2s)
-- Grain feeding defaults to required amount on empty ENTER; `+` feeds 150%, `++` feeds 200% (people only). Only confirm if excess > 2x army need or 4x people need AND absolute difference > 10 bushels
+- Grain feeding defaults to required amount on empty ENTER; `+` feeds 150%, `++` feeds 200% (people only); army `+` always feeds 150%. Only confirm if excess > 2x army need or 4x people need AND absolute difference > 10 bushels. Input must be all `+` chars or valid numeric — mixed input is rejected.
+- When buying grain, ENTER defaults to max affordable amount
+- When a ruler dies non-militarily (starvation assassination, random event), their land reverts to barbarian control
+- All numeric input fields validate and re-prompt on non-numeric input
 - Soldier purchase caps should explain the limiting factor (nobles, foundries, serfs, treasury)
 - Purchase prompts should show the maximum affordable/available amount
 - Prefer clean code patterns: strategy pattern, no switch-on-difficulty, no duplicated strings

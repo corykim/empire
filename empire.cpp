@@ -631,15 +631,37 @@ static void GameSetupScreen()
             if (player->cpuDifficulty > 4.0f) player->cpuDifficulty = 4.0f;
             player->strategyIndex = static_cast<int>(player->cpuDifficulty + 0.5f);
             if (player->strategyIndex > 4) player->strategyIndex = 4;
-            GameLog("  %s: difficulty=%.2f strategy=%d (%s)\n",
+            /* Random opening capital allocation: three weighted random
+             * values normalized to sum to 100%.  Higher difficulty biases
+             * strongly toward mills (the strongest economic strategy).
+             *   diff=0: all equal weights (uniform random)
+             *   diff=4: mill draw is 3.5× base (strong mill preference,
+             *           ~28% chance of non-mill opening for diversity) */
+            float millBias = 1.0f + 0.625f * player->cpuDifficulty;
+            int r1 = RandRange(100);
+            int r2 = static_cast<int>(RandRange(100) * millBias);
+            int r3 = RandRange(100);
+            int rsum = r1 + r2 + r3;
+            player->openMarketPct = r1 * 100 / rsum;
+            player->openMillPct = r2 * 100 / rsum;
+            player->openMilitaryPct = 100 - player->openMarketPct
+                                          - player->openMillPct;
+
+            GameLog("  %s: difficulty=%.2f strategy=%d (%s) "
+                    "opening=mkt%d/mill%d/mil%d\n",
                     player->country->name, player->cpuDifficulty,
                     player->strategyIndex,
-                    cpuStrategies[player->strategyIndex]->name);
+                    cpuStrategies[player->strategyIndex]->name,
+                    player->openMarketPct, player->openMillPct,
+                    player->openMilitaryPct);
         }
         else
         {
             player->cpuDifficulty = 0.0f;
             player->strategyIndex = 0;
+            player->openMarketPct = 0;
+            player->openMillPct = 0;
+            player->openMilitaryPct = 0;
         }
     }
 
@@ -1055,6 +1077,28 @@ static void CPUGrainPhase(Player *aPlayer)
     if (desiredFeed > maxFeed)
         desiredFeed = maxFeed;
 
+    /* Ensure a minimum planting reserve after ALL feeding.
+     * Without this, CPUs overfeed to ~190%, leaving near-zero grain,
+     * which means next year's usable land = 0 and harvest collapses. */
+    {
+        int usableLand = aPlayer->land - aPlayer->serfCount
+                         - 2 * aPlayer->nobleCount - aPlayer->merchantCount
+                         - 2 * aPlayer->soldierCount - aPlayer->palaceCount;
+        if (usableLand < 0) usableLand = 0;
+        int seedRate = EffectiveSeedRate(aPlayer);
+        int minPlanting = static_cast<int>(
+            CPU_MIN_PLANTING_RESERVE * usableLand / seedRate);
+        int grainAfterFeed = aPlayer->grain - desiredFeed;
+        if (grainAfterFeed < minPlanting && desiredFeed > aPlayer->peopleGrainNeed)
+        {
+            desiredFeed = aPlayer->grain - minPlanting;
+            if (desiredFeed < aPlayer->peopleGrainNeed)
+                desiredFeed = aPlayer->peopleGrainNeed;
+            GameLog("  Planting reserve clamp: reduced feed to %d (reserve %d)\n",
+                    desiredFeed, minPlanting);
+        }
+    }
+
     aPlayer->peopleGrainFeed = MIN(desiredFeed, aPlayer->grain);
     aPlayer->grain -= aPlayer->peopleGrainFeed;
 
@@ -1128,11 +1172,22 @@ static void CPUPopulationPhase(Player *aPlayer)
             }
         }
         UIColorOff();
-        printw("\nThe other nation-states have sent representatives "
+
+        /* Dead ruler's land reverts to barbarian control. */
+        printw("\nThe lands of %s fall into disarray and revert to "
+               "barbarian control.\n", aPlayer->country->name);
+        GameLog("  %s land (%d acres) reverts to barbarians\n",
+                aPlayer->country->name, aPlayer->land);
+        barbarianLand += aPlayer->land;
+        aPlayer->land = 0;
+        aPlayer->grainForSale = 0;
+        aPlayer->grainPrice = 0.0;
+
+        printw("The other nation-states have sent representatives "
                "to the funeral.\n");
         UISeparator();
         flushinp();
-    printw("<Enter>? ");
+        printw("<Enter>? ");
         getnstr(input, sizeof(input));
     }
 }

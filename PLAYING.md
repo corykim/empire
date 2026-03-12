@@ -68,7 +68,7 @@ You can't attack other countries during the treaty period (varies by difficulty 
 - **Overrun**: If an enemy destroys all your soldiers and serfs defend unsuccessfully, your country falls.
 - **Random events**: There's a 1% chance each year of dying from an accident, poisoning, or assassination by a noble.
 
-When any ruler dies — yours or a rival's — you'll see a notification and be prompted to continue. A ruler who dies mid-turn immediately loses control; their turn ends with no further investments or attacks.
+When any ruler dies — yours or a rival's — you'll see a notification and be prompted to continue. A ruler who dies mid-turn immediately loses control; their turn ends with no further investments or attacks. When a ruler dies from non-military causes (starvation or random events), their land reverts to barbarian control and can be conquered by any player.
 
 ### Winning
 
@@ -222,9 +222,10 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 
 **How diplomacy affects CPU behavior:**
 - **Target selection**: CPUs are most likely to attack the player with the lowest score. Positive scores make you an unlikely target; negative scores paint a bullseye.
-- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution — CPUs will send raids to weaken a dominant player regardless of the odds (but never fewer than 10 soldiers).
-- **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards).
-- **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies.
+- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution. Anti-leader coordination boosts attack weight 1.5× and shifts investment toward military when any player exceeds 2× average power.
+- **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards). CPUs compare mill vs marketplace ROI and buy whichever is more profitable.
+- **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies. A garrison floor keeps 25% of the army as defense. Exception: CPUs can go all-in against a nemesis (maximum hostility, major power imbalance) when backed by allies.
+- **Defensive turtling**: When outmatched 3:1+ with fewer than 50 soldiers, CPUs skip attacks entirely and focus on rebuilding.
 - **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be. Betraying an ally is viewed far more negatively by observers than attacking an enemy.
 - **Alliance coordination**: CPUs consider allied strength (not just their own) when evaluating odds. When an ally attacks a shared enemy, other CPUs become more hostile toward that enemy and are more likely to pile on.
 - **Vulnerability detection**: CPUs detect when a player has recently lost soldiers or has zero defenders, and prioritize attacking them with full force.
@@ -236,9 +237,13 @@ CPU players use the same economic rules as you. They buy and sell grain, set tax
 
 - **Level 1 (Village Fool)**: Makes random decisions, often skips trading entirely, wastes half their investment budget on random purchases. Picks targets nearly at random, ignoring diplomacy scores. Never adjusts tax rates from defaults.
 - **Level 3 (Minor Noble)**: Makes reasonable decisions with moderate error. Scores moderately influence target selection. Slowly adapts tax rates toward optimal.
-- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds for immigration (withdrawing own market grain and buying grain if needed), uses full theory-of-mind simulation, coordinates with allies, and goes all-in against vulnerable targets.
+- **Level 5 (Machiavelli)**: Near-optimal tax rates (computed by simulating all 756 sales/income combinations), efficient investment with guns-vs-butter prioritization, exploits arbitrage on the grain market, overfeeds for immigration (withdrawing own market grain and buying grain if needed), uses full theory-of-mind simulation, coordinates with allies, and goes all-in against vulnerable targets. Strongly favors mill-heavy opening strategies (~72% chance), selling land to fund 2-3 mills on turn 1.
 
-CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
+Each CPU gets a random opening capital allocation (market/mill/military) at game start, biased toward mills by difficulty. CPUs sell land on turn 1 to fund their allocation. This produces diverse strategies: some CPUs rush mills, some rush marketplaces, some go military. At Level 5, most CPUs favor mills but ~28% try alternative openings for strategic diversity.
+
+CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. Attacks require a minimum force (25% of estimated target strength) to prevent wasteful suicide raids. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
+
+CPUs maintain a grain planting reserve to prevent starvation spirals, and trigger emergency grain recovery (land sales, grain purchases) when critically low.
 
 All difficulty levels use identical economic formulas. The only difference is decision quality, not rules.
 

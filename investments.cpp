@@ -243,9 +243,35 @@ void SetTaxRate(Player *aPlayer, int *taxPtr,
         CLEAR_MSG_AREA();
         printw("%s tax (now %d%%, max %d%%)? ", taxName, *taxPtr, maxRate);
         getnstr(input, sizeof(input));
-        newRate = ParseNum(input);
-        if ((newRate >= 0) && (newRate <= maxRate))
+        if (input[0] == '\0')
+        {
+            newRate = *taxPtr;  /* Keep current rate on empty ENTER */
             valid = true;
+        }
+        else
+        {
+            /* Strip non-numeric except digits and commas. */
+            bool isNum = true;
+            for (int i = 0; input[i]; i++)
+            {
+                if ((input[i] < '0' || input[i] > '9') && input[i] != ',')
+                    isNum = false;
+            }
+            if (!isNum)
+            {
+                CLEAR_MSG_AREA();
+                ShowMessage("Enter a tax rate (0-%d)", maxRate);
+                continue;
+            }
+            newRate = ParseNum(input);
+            if ((newRate >= 0) && (newRate <= maxRate))
+                valid = true;
+            else
+            {
+                CLEAR_MSG_AREA();
+                ShowMessage("Tax rate must be between 0 and %d", maxRate);
+            }
+        }
     } while (!valid);
     *taxPtr = newRate;
     GameLog("  Set %s tax: %d%%\n", taxName, newRate);
@@ -352,9 +378,27 @@ void BuyBuilding(Player *aPlayer, int investmentType)
     do
     {
         CLEAR_MSG_AREA();
-        printw("How many? ");
+        printw("How many (0 to cancel)? ");
         getnstr(input, sizeof(input));
+        if (input[0] == '\0')
+            return;
+        {
+            bool isNum = true;
+            for (int i = 0; input[i]; i++)
+            {
+                if ((input[i] < '0' || input[i] > '9') && input[i] != ',')
+                    isNum = false;
+            }
+            if (!isNum)
+            {
+                CLEAR_MSG_AREA();
+                ShowMessage("Enter a number");
+                continue;
+            }
+        }
         count = ParseNum(input);
+        if (count <= 0)
+            return;
         valid = ValidateInvestment(aPlayer, investmentType, count);
     } while (!valid);
 
@@ -386,8 +430,22 @@ void BuySoldiers(Player *aPlayer)
 
     /* Get the number of soldiers to buy. */
     CLEAR_MSG_AREA();
-    printw("How many? ");
+    printw("How many (0 to cancel)? ");
     getnstr(input, sizeof(input));
+    {
+        bool isNum = false;
+        for (int i = 0; input[i]; i++)
+        {
+            if (input[i] >= '0' && input[i] <= '9') isNum = true;
+            else if (input[i] != ',') { isNum = false; break; }
+        }
+        if (!isNum && input[0] != '\0')
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of soldiers");
+            return;
+        }
+    }
     soldierCount = ParseNum(input);
     if (soldierCount <= 0)
         return;

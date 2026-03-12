@@ -157,6 +157,10 @@ struct Player
     float                   cpuDifficulty;
     int                     strategyIndex;
     float                   diplomacy[COUNTRY_COUNT];
+    /* Opening capital allocation (set once on turn 1, sums to 100). */
+    int                     openMarketPct;
+    int                     openMillPct;
+    int                     openMilitaryPct;
 };
 
 

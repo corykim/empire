@@ -115,6 +115,15 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
 
         float w = diplomacyW + envyW + vulnW;
 
+        /* Anti-leader boost: if target exceeds 2× average power and we
+         * have negative diplomacy toward them, increase attack weight. */
+        float avgPow = ComputeAverageSurvivorPower();
+        if (targetPower > avgPow * CPU_LEADER_POWER_MULT
+            && aPlayer->diplomacy[idx] < 0.0f)
+        {
+            w *= CPU_LEADER_ATTACK_BOOST;
+        }
+
         /* Theory of mind: simulate diplomatic consequences of this attack. */
         float simScore = SimulateAttackOutcome(aPlayer, idx);
         w += simScore;
@@ -363,6 +372,43 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     int effError = ComputeErrorPct(aPlayer->cpuDifficulty);
 
     /*
+     * EMERGENCY grain recovery: if grain is critically low (can't feed
+     * even 50% of need), sell land and buy grain aggressively.
+     */
+    if (aPlayer->grain < totalNeed / 2)
+    {
+        /* Sell up to 10% of land to fund grain purchases. */
+        int maxSell = aPlayer->land / 10;
+        if (maxSell > 0)
+        {
+            SellLandToBarbarians(aPlayer, maxSell);
+            GameLog("  EMERGENCY: sold %d acres for grain recovery\n", maxSell);
+        }
+
+        /* Buy grain from cheapest seller with all available treasury. */
+        Player *cheapest = nullptr;
+        for (int i = 0; i < COUNTRY_COUNT; i++)
+        {
+            Player *p = &playerList[i];
+            if (p == aPlayer || p->dead || p->grainForSale <= 0)
+                continue;
+            if (cheapest == nullptr || p->grainPrice < cheapest->grainPrice)
+                cheapest = p;
+        }
+        if (cheapest != nullptr)
+        {
+            int deficit = totalNeed - aPlayer->grain;
+            TradeGrain(aPlayer, cheapest, deficit);
+            GameLog("  EMERGENCY: bought grain from %s (deficit %d)\n",
+                    cheapest->country->name, deficit);
+        }
+
+        /* Withdraw ALL listed grain (accept spoilage). */
+        if (aPlayer->grainForSale > 0)
+            WithdrawGrain(aPlayer, aPlayer->grainForSale);
+    }
+
+    /*
      * Chance to act at all: smarter CPUs trade more often.
      * Low difficulty: ~50% chance to skip. High difficulty: ~5% chance.
      */
@@ -465,17 +511,18 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     }
 
     /*
-     * SELL LAND only as a last resort when treasury is empty and we have
-     * far more land than we can farm.
+     * SELL LAND as a last resort when treasury is empty.
+     * Relax the land surplus check when grain is critically low.
      */
     int population = aPlayer->serfCount + aPlayer->merchantCount
                      + aPlayer->nobleCount + aPlayer->soldierCount;
+    bool grainEmergency = (aPlayer->grain < totalNeed);
     if (aPlayer->treasury < COST_SOLDIER &&
-        aPlayer->land > population * CPU_LAND_SURPLUS_MULT)
+        (aPlayer->land > population * CPU_LAND_SURPLUS_MULT || grainEmergency))
     {
         int acresNeeded = (COST_MARKETPLACE - aPlayer->treasury + 1)
                           / static_cast<int>(LAND_SELL_PRICE);
-        int maxSell = aPlayer->land / 20;
+        int maxSell = aPlayer->land / (grainEmergency ? 10 : 20);
         if (acresNeeded > maxSell)
             acresNeeded = maxSell;
         SellLandToBarbarians(aPlayer, acresNeeded);
@@ -556,6 +603,16 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     }
     /* Each 1.0 of power ratio above 1.0 adds ~15% to guns budget. */
     gunsPct += static_cast<int>(maxEnvy * 15.0f);
+
+    /* Anti-leader: boost guns allocation when a dominant player exists. */
+    int leaderIdx = FindLeaderIdx();
+    if (leaderIdx >= 0 && leaderIdx != pi)
+    {
+        float leaderPower = ComputePlayerPower(&playerList[leaderIdx]);
+        float avgPow = ComputeAverageSurvivorPower();
+        if (leaderPower > avgPow * CPU_LEADER_POWER_MULT)
+            gunsPct += static_cast<int>(CPU_LEADER_GUNS_BOOST);
+    }
 
     if (gunsPct < 20) gunsPct = 20;
     if (gunsPct > 80) gunsPct = 80;
@@ -641,28 +698,132 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
 
     /* === BUTTER: economic infrastructure === */
 
-    /* Marketplaces — cheap revenue generators. */
-    desired = MIN(aPlayer->treasury / COST_MARKETPLACE, RandRange(3));
-    bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
-                                desired, COST_MARKETPLACE);
-    if (bought > 0)
+    /* During opening years, use the per-CPU capital allocation.
+     * CPUs sell land to fund their allocation — just like a human
+     * player selling acres for an early mill or marketplace rush. */
+    if (year <= CPU_OPENING_YEARS && !aPlayer->human)
     {
-        boughtAnyMarketplaces = true;
-        GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
-                bought, bought * COST_MARKETPLACE, aPlayer->treasury);
-    }
+        /* Compute desired purchases from allocation percentages. */
+        int wantMills = aPlayer->openMillPct > 15
+                        ? MAX(1, aPlayer->openMillPct / 25) : 0;
+        int wantMkts = aPlayer->openMarketPct > 15
+                       ? MAX(1, aPlayer->openMarketPct / 20) : 0;
+        int wantMilitary = aPlayer->openMilitaryPct > 30 ? 1 : 0;
 
-    /* Palaces — economic pass (attract nobles for general growth). */
-    if (!boughtAnyPalaces)
+        int totalCost = wantMills * COST_GRAIN_MILL
+                      + wantMkts * COST_MARKETPLACE
+                      + wantMilitary * COST_PALACE;
+
+        /* Sell enough land to fund the opening (up to 25% of land). */
+        if (totalCost > aPlayer->treasury)
+        {
+            int deficit = totalCost - aPlayer->treasury;
+            int sellAcres = MIN(
+                (deficit + static_cast<int>(LAND_SELL_PRICE) - 1)
+                    / static_cast<int>(LAND_SELL_PRICE),
+                aPlayer->land / 4);
+            if (sellAcres > 0)
+            {
+                SellLandToBarbarians(aPlayer, sellAcres);
+                GameLog("  Opening land sale: %d acres for %d gold  "
+                        "Treasury: %d\n",
+                        sellAcres,
+                        sellAcres * static_cast<int>(LAND_SELL_PRICE),
+                        aPlayer->treasury);
+            }
+        }
+
+        GameLog("  Opening allocation: mkt=%d%% mill=%d%% mil=%d%%  "
+                "want: %d mkts, %d mills, %d palaces  cost: %d\n",
+                aPlayer->openMarketPct, aPlayer->openMillPct,
+                aPlayer->openMilitaryPct,
+                wantMkts, wantMills, wantMilitary, totalCost);
+
+        /* Buy mills first (highest ROI at L5). */
+        if (wantMills > 0)
+        {
+            bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
+                                        wantMills, COST_GRAIN_MILL);
+            if (bought > 0)
+                GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
+                        bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
+        }
+
+        /* Marketplaces. */
+        if (wantMkts > 0)
+        {
+            bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
+                                        wantMkts, COST_MARKETPLACE);
+            if (bought > 0)
+            {
+                boughtAnyMarketplaces = true;
+                GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
+                        bought, bought * COST_MARKETPLACE, aPlayer->treasury);
+            }
+        }
+
+        /* Military opening: palace. */
+        if (wantMilitary > 0 && aPlayer->treasury >= COST_PALACE)
+        {
+            bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
+                                        1, COST_PALACE);
+            if (bought > 0)
+            {
+                boughtAnyPalaces = true;
+                GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
+                        bought, bought * COST_PALACE, aPlayer->treasury);
+            }
+        }
+
+        /* Spend remaining on soldiers if military allocation is high. */
+        if (aPlayer->openMilitaryPct > 30)
+        {
+            SoldierCap cap = ComputeSoldierCap(aPlayer);
+            if (cap.maxSoldiers > 0)
+                PurchaseSoldiers(aPlayer, cap.maxSoldiers);
+        }
+    }
+    else
     {
-        desired = MIN(aPlayer->treasury / COST_PALACE, RandRange(2));
-        bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
-                                    desired, COST_PALACE);
+        /* Normal butter: choose marketplace vs mill based on marginal ROI. */
+        float mktROI = ComputeMarketplaceROI(aPlayer);
+        float millROI = ComputeMillROI(aPlayer);
+
+        if (millROI > mktROI * 1.1f && aPlayer->treasury >= COST_GRAIN_MILL)
+        {
+            desired = MIN(aPlayer->treasury / COST_GRAIN_MILL, RandRange(2) + 1);
+            bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
+                                        desired, COST_GRAIN_MILL);
+            if (bought > 0)
+                GameLog("  Bought %d grain mills (ROI %.3f vs mkt %.3f) (-%d)"
+                        "  Treasury: %d\n",
+                        bought, millROI, mktROI,
+                        bought * COST_GRAIN_MILL, aPlayer->treasury);
+        }
+
+        /* Marketplaces. */
+        desired = MIN(aPlayer->treasury / COST_MARKETPLACE, RandRange(3));
+        bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
+                                    desired, COST_MARKETPLACE);
         if (bought > 0)
         {
-            boughtAnyPalaces = true;
-            GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
-                    bought, bought * COST_PALACE, aPlayer->treasury);
+            boughtAnyMarketplaces = true;
+            GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
+                    bought, bought * COST_MARKETPLACE, aPlayer->treasury);
+        }
+
+        /* Palaces — economic pass (attract nobles for general growth). */
+        if (!boughtAnyPalaces)
+        {
+            desired = MIN(aPlayer->treasury / COST_PALACE, RandRange(2));
+            bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
+                                        desired, COST_PALACE);
+            if (bought > 0)
+            {
+                boughtAnyPalaces = true;
+                GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
+                        bought, bought * COST_PALACE, aPlayer->treasury);
+            }
         }
     }
 
@@ -674,27 +835,6 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
         ApplyMarketplaceBonus(aPlayer);
     if (boughtAnyPalaces)
         ApplyPalaceBonus(aPlayer);
-
-    /* Grain mills — proportional to farmland.  Mills boost harvest yield,
-     * so grain-starved CPUs should invest in them to recover. */
-    {
-        int usableLand = aPlayer->land - aPlayer->serfCount
-                         - 2 * aPlayer->nobleCount - aPlayer->merchantCount
-                         - 2 * aPlayer->soldierCount - aPlayer->palaceCount;
-        if (usableLand < 0) usableLand = 0;
-        int millsWanted = usableLand / CPU_ACRES_PER_GRAIN_MILL;
-        int millDeficit = millsWanted - aPlayer->grainMillCount;
-        if (millDeficit > 0)
-        {
-            desired = MIN(MIN(aPlayer->treasury / COST_GRAIN_MILL, millDeficit),
-                          RandRange(2));
-            bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
-                                        desired, COST_GRAIN_MILL);
-            if (bought > 0)
-                GameLog("  Bought %d grain mills (-%d)  Treasury: %d\n",
-                        bought, bought * COST_GRAIN_MILL, aPlayer->treasury);
-        }
-    }
 
     /* Foundries — economic pass. */
     desired = MIN(aPlayer->treasury / COST_FOUNDRY, RandRange(2));

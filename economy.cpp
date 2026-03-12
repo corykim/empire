@@ -577,6 +577,64 @@ float ComputeVulnerability(int targetIdx)
 }
 
 
+float ComputeAverageSurvivorPower()
+{
+    float total = 0.0f;
+    int count = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead)
+        {
+            total += ComputePlayerPower(&playerList[i]);
+            count++;
+        }
+    }
+    return (count > 0) ? total / count : 1.0f;
+}
+
+
+int FindLeaderIdx()
+{
+    int best = -1;
+    float bestPower = 0.0f;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead)
+        {
+            float p = ComputePlayerPower(&playerList[i]);
+            if (p > bestPower) { bestPower = p; best = i; }
+        }
+    }
+    return best;
+}
+
+
+float ComputeMarketplaceROI(Player *aPlayer)
+{
+    int expRand = 36;
+    int perUnit = (MKT_REV_MULT * (aPlayer->merchantCount + expRand)
+                   / (aPlayer->salesTax + 1)) + MKT_REV_ADD;
+    int count = aPlayer->marketplaceCount;
+    float revNow = (count > 0) ? pow(count * perUnit, REV_EXP_INVESTMENT) : 0.0f;
+    float revNext = pow((count + 1) * perUnit, REV_EXP_INVESTMENT);
+    return (revNext - revNow) / static_cast<float>(COST_MARKETPLACE);
+}
+
+
+float ComputeMillROI(Player *aPlayer)
+{
+    int expRand = 602;
+    int perUnit = static_cast<int>(
+        MILL_REV_MULT * static_cast<float>(aPlayer->serfCount + expRand)
+        / static_cast<float>(aPlayer->incomeTax + 1))
+        + MILL_REV_ADD;
+    int count = aPlayer->grainMillCount;
+    float revNow = (count > 0) ? pow(count * perUnit, REV_EXP_INVESTMENT) : 0.0f;
+    float revNext = pow((count + 1) * perUnit, REV_EXP_INVESTMENT);
+    return (revNext - revNow) / static_cast<float>(COST_GRAIN_MILL);
+}
+
+
 void ComputeGrainPhase(Player *aPlayer)
 {
     int usableLand;

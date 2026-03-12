@@ -162,6 +162,13 @@ constexpr int   SACK_THRESHOLD_DIV    = 3;      /* Sack if capture > 1/N of land
 /* CPU behavior tuning (shared across files). */
 constexpr int   CPU_OVERFEED_PCT         = 190;    /* CPU target people overfeed percentage */
 constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
+constexpr float CPU_MIN_PLANTING_RESERVE = 0.30f;  /* Fraction of farmable land to keep seedable */
+constexpr float CPU_MIN_ATTACK_RATIO     = 0.25f;  /* Min troops as fraction of est. target strength */
+constexpr float CPU_LEADER_POWER_MULT    = 2.0f;   /* Power ratio to trigger anti-leader mode */
+constexpr float CPU_LEADER_ATTACK_BOOST  = 1.5f;   /* Attack weight multiplier for leader target */
+constexpr float CPU_LEADER_GUNS_BOOST    = 15.0f;  /* Extra guns% when leader detected */
+constexpr float CPU_TURTLE_POWER_RATIO   = 3.0f;   /* Don't attack targets with this power ratio */
+constexpr int   CPU_OPENING_YEARS        = 3;       /* Years that opening allocation influences */
 
 /* Diplomacy. */
 constexpr float DIPLOMACY_INIT_RANGE       = 0.05f;
@@ -372,6 +379,39 @@ int ComputeAlliedStrength(Player *attacker, int targetIdx);
  */
 
 float ComputeVulnerability(int targetIdx);
+
+
+/*
+ * Compute average power score of all surviving players.
+ */
+
+float ComputeAverageSurvivorPower();
+
+
+/*
+ * Find the index of the player with the highest power score.
+ * Returns -1 if no living players.
+ */
+
+int FindLeaderIdx();
+
+
+/*
+ * Compute marginal ROI (revenue per gold spent) for the next marketplace.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+float ComputeMarketplaceROI(Player *aPlayer);
+
+
+/*
+ * Compute marginal ROI (revenue per gold spent) for the next grain mill.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+float ComputeMillROI(Player *aPlayer);
 
 
 /*

@@ -46,6 +46,46 @@ static void FeedCountry(Player *aPlayer);
 static void UpdateTreasuryDisplay(Player *aPlayer);
 
 
+/*
+ * Return true if input is a valid numeric string (digits, optional commas,
+ * optional leading minus).  Empty strings return false.
+ */
+
+static bool IsValidNumericInput(const char *input)
+{
+    if (input[0] == '\0')
+        return false;
+    int i = 0;
+    if (input[i] == '-') i++;
+    bool hasDigit = false;
+    for (; input[i]; i++)
+    {
+        if (input[i] >= '0' && input[i] <= '9')
+            hasDigit = true;
+        else if (input[i] != ',')
+            return false;
+    }
+    return hasDigit;
+}
+
+
+/*
+ * Return true if input consists entirely of '+' characters.
+ */
+
+static bool IsAllPlus(const char *input)
+{
+    if (input[0] != '+')
+        return false;
+    for (int i = 0; input[i]; i++)
+    {
+        if (input[i] != '+')
+            return false;
+    }
+    return true;
+}
+
+
 /*------------------------------------------------------------------------------
  *
  * External grain screen functions.
@@ -247,8 +287,14 @@ static void BuyGrain(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("Buy from which country? ");
+        printw("Buy from which country (0 to cancel)? ");
         getnstr(input, sizeof(input));
+        if (!IsValidNumericInput(input) && input[0] != '\0')
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a country number");
+            continue;
+        }
         sellerIndex = ParseNum(input);
         if ((sellerIndex >= 0) && (sellerIndex <= COUNTRY_COUNT))
         {
@@ -276,17 +322,39 @@ static void BuyGrain(Player *aPlayer)
 
     /* Get the amount of grain to buy. */
     validGrain = false;
-    maxGrain = (static_cast<float>(aPlayer->treasury) * (1.0f - GRAIN_MARKUP)) / seller->grainPrice;
+    maxGrain = static_cast<int>(
+        (static_cast<float>(aPlayer->treasury) * (1.0f - GRAIN_MARKUP))
+        / seller->grainPrice);
+    if (maxGrain > seller->grainForSale)
+        maxGrain = seller->grainForSale;
     do
     {
         /* Get the number of bushels to purchase. */
         CLEAR_MSG_AREA();
-        printw("How many bushels (up to %s)? ", FmtNum(MIN(maxGrain, seller->grainForSale)));
+        printw("How many bushels (up to %s, ENTER for max)? ",
+               FmtNum(maxGrain));
         getnstr(input, sizeof(input));
-        grain = ParseNum(input);
+        if (input[0] == '\0')
+        {
+            grain = maxGrain;
+        }
+        else if (!IsValidNumericInput(input))
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of bushels to buy");
+            continue;
+        }
+        else
+        {
+            grain = ParseNum(input);
+        }
+        if (grain <= 0)
+            return;
 
         /* Compute the total grain purchase price, including marketplace markup. */
-        totalPrice = (static_cast<float>(grain) * seller->grainPrice) / (1.0f - GRAIN_MARKUP);
+        totalPrice = static_cast<int>(
+            (static_cast<float>(grain) * seller->grainPrice)
+            / (1.0f - GRAIN_MARKUP));
 
         if (grain > seller->grainForSale)
         {
@@ -330,15 +398,23 @@ static void SellGrain(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("How many bushels do you wish to sell? ");
+        printw("How many bushels do you wish to sell (0 to cancel)? ");
         getnstr(input, sizeof(input));
+        if (!IsValidNumericInput(input) && input[0] != '\0')
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of bushels");
+            continue;
+        }
         grainToSell = ParseNum(input);
+        if (grainToSell <= 0)
+            return;
         if (grainToSell > aPlayer->grain)
         {
             CLEAR_MSG_AREA();
             ShowMessage("You only have %s bushels!", FmtNum(aPlayer->grain));
         }
-        else if (grainToSell > 0)
+        else
         {
             validGrainToSell = true;
         }
@@ -351,7 +427,18 @@ static void SellGrain(Player *aPlayer)
         CLEAR_MSG_AREA();
         printw("What will be the price per bushel? ");
         getnstr(input, sizeof(input));
-        grainPrice = strtod(input, nullptr);
+        if (input[0] == '\0')
+            continue;
+        {
+            char *endp;
+            grainPrice = strtod(input, &endp);
+            if (endp == input || (*endp != '\0' && *endp != ' '))
+            {
+                CLEAR_MSG_AREA();
+                ShowMessage("Enter a price (e.g. 0.50)");
+                continue;
+            }
+        }
         if (grainPrice > GRAIN_PRICE_MAX)
         {
             ShowMessage("Be reasonable . . .even gold costs less than that!");
@@ -390,15 +477,19 @@ static void SellLand(Player *aPlayer)
 
         /* Get the number of acres to sell. */
         CLEAR_MSG_AREA();
-        printw("How many of your %s acres will you sell? ",
+        printw("How many of your %s acres will you sell (0 to cancel)? ",
                FmtNum(aPlayer->land));
         getnstr(input, sizeof(input));
-        landToSell = ParseNum(input);
-        if (landToSell < 0)
+        if (!IsValidNumericInput(input) && input[0] != '\0')
         {
-            validLandToSell = false;
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of acres");
+            continue;
         }
-        else if (static_cast<float>(landToSell) <= (LAND_MAX_SELL_PCT * static_cast<float>(aPlayer->land)))
+        landToSell = ParseNum(input);
+        if (landToSell <= 0)
+            return;
+        if (static_cast<float>(landToSell) <= (LAND_MAX_SELL_PCT * static_cast<float>(aPlayer->land)))
         {
             validLandToSell = true;
         }
@@ -436,10 +527,16 @@ static void WithdrawGrainScreen(Player *aPlayer)
     do
     {
         CLEAR_MSG_AREA();
-        printw("Withdraw how many of your %s listed bushels (%d%% penalty)? ",
+        printw("Withdraw how many of your %s listed bushels (%d%% penalty, 0 to cancel)? ",
                FmtNum(aPlayer->grainForSale),
                static_cast<int>(GRAIN_WITHDRAW_FEE * 100));
         getnstr(input, sizeof(input));
+        if (!IsValidNumericInput(input) && input[0] != '\0')
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of bushels");
+            continue;
+        }
         grainToWithdraw = ParseNum(input);
         if (grainToWithdraw <= 0)
         {
@@ -481,10 +578,15 @@ static void RepriceGrainScreen(Player *aPlayer)
     }
 
     CLEAR_MSG_AREA();
-    printw("Current price: %6.4f.  New price per bushel? ",
+    printw("Current price: %6.4f.  New price per bushel (0 to cancel)? ",
            aPlayer->grainPrice);
     getnstr(input, sizeof(input));
-    newPrice = strtod(input, nullptr);
+    {
+        char *endp;
+        newPrice = strtod(input, &endp);
+        if (endp == input)
+            return;
+    }
 
     if (newPrice <= 0.0)
         return;
@@ -524,8 +626,14 @@ static void FeedCountry(Player *aPlayer)
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->armyGrainNeed;
-        else if (input[0] == '+')
-            grainToFeed = (aPlayer->armyGrainNeed * 3 + 1) / 2;
+        else if (IsAllPlus(input))
+            grainToFeed = aPlayer->armyGrainNeed * 3 / 2 + 1;
+        else if (!IsValidNumericInput(input))
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of bushels, or + for 150%%");
+            continue;
+        }
         else
             grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)
@@ -566,7 +674,7 @@ static void FeedCountry(Player *aPlayer)
         getnstr(input, sizeof(input));
         if (input[0] == '\0')
             grainToFeed = aPlayer->peopleGrainNeed;
-        else if (input[0] == '+')
+        else if (IsAllPlus(input))
         {
             /* Count '+' characters: each adds 50% of need. */
             int plusCount = 0;
@@ -576,6 +684,12 @@ static void FeedCountry(Player *aPlayer)
              * so immigration triggers reliably with '+'. */
             int exact = aPlayer->peopleGrainNeed * (100 + 50 * plusCount) / 100;
             grainToFeed = exact + 1;
+        }
+        else if (!IsValidNumericInput(input))
+        {
+            CLEAR_MSG_AREA();
+            ShowMessage("Enter a number of bushels, or + for 150%%, ++ for 200%%");
+            continue;
         }
         else
             grainToFeed = ParseNum(input);

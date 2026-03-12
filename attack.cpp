@@ -156,6 +156,28 @@ void CPUAttackScreen(Player *aPlayer)
     if (aPlayer->soldierCount <= 0)
         return;
 
+    /* Defensive turtling: if any player outmatches us 3:1+ and we have
+     * a small army, skip attacks to rebuild.  Still allow barbarian raids. */
+    float myPower = ComputePlayerPower(aPlayer);
+    bool shouldTurtle = false;
+    for (int j = 0; j < COUNTRY_COUNT; j++)
+    {
+        if (!playerList[j].dead && &playerList[j] != aPlayer)
+        {
+            if (ComputePlayerPower(&playerList[j]) > myPower * CPU_TURTLE_POWER_RATIO)
+            {
+                shouldTurtle = true;
+                break;
+            }
+        }
+    }
+    if (shouldTurtle && aPlayer->soldierCount < 50)
+    {
+        GameLog("  Turtling: outmatched %.0f:1 with %d soldiers\n",
+                CPU_TURTLE_POWER_RATIO, aPlayer->soldierCount);
+        return;
+    }
+
     /* Maximum attacks per year, same rule as humans. */
     maxAttacks = (aPlayer->nobleCount / ATTACKS_PER_NOBLE_DIV) + 1;
     aPlayer->attackCount = 0;
@@ -199,18 +221,7 @@ void CPUAttackScreen(Player *aPlayer)
         /* Attack, holding reserve soldiers back.
          * Break if attack couldn't proceed (e.g., not enough soldiers). */
         if (!CPUAttack(aPlayer, targetPlayer, reserve))
-        {
-            /* Can't attack — build hostility for future coordinated strike. */
-            if (targetPlayer != nullptr)
-            {
-                int ti = targetPlayer - playerList;
-                aPlayer->diplomacy[ti] -= 0.15f;
-                aPlayer->diplomacy[ti] = ClampDiplomacy(aPlayer->diplomacy[ti]);
-                GameLog("  Frustrated attack -> diplomacy toward %s decreased\n",
-                        targetPlayer->country->name);
-            }
             break;
-        }
 
         /* Recompute reserve — diplomacy and soldier counts may have changed. */
         reserve = ComputeRetaliationReserve(aPlayer);
@@ -419,6 +430,56 @@ static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
         soldiersToSend = available;
     if (soldiersToSend <= 0)
         return false;
+
+    /* Attack force threshold: don't send too few troops against a player.
+     * Estimate target military from power score (soldiers dominate it). */
+    if (aTargetPlayer != nullptr)
+    {
+        float targetPower = ComputePlayerPower(aTargetPlayer);
+        int estimatedMilitary = static_cast<int>(targetPower * 0.5f);
+        int minForce = static_cast<int>(estimatedMilitary * CPU_MIN_ATTACK_RATIO);
+        if (minForce < CPU_MIN_ATTACK_FORCE)
+            minForce = CPU_MIN_ATTACK_FORCE;
+        if (soldiersToSend < minForce)
+        {
+            GameLog("  Aborting attack: %d soldiers < minimum %d\n",
+                    soldiersToSend, minForce);
+            return false;
+        }
+    }
+
+    /* Garrison floor: keep at least 25% of army as defense.
+     * Exception: allow all-in against a nemesis (diplomacy -2.0, massive
+     * power imbalance) when allied strength backs us up. */
+    if (aTargetPlayer != nullptr)
+    {
+        int garrison = aPlayer->soldierCount / 4;
+        int ti = aTargetPlayer - playerList;
+        bool isNemesis = (aPlayer->diplomacy[ti] <= -DIPLOMACY_CLAMP + 0.1f);
+        float targetPow = ComputePlayerPower(aTargetPlayer);
+        float myPow = ComputePlayerPower(aPlayer);
+        int alliedTroops = ComputeAlliedStrength(aPlayer, ti);
+        bool alliedBacked = (alliedTroops > aTargetPlayer->soldierCount / 2);
+
+        if (isNemesis && targetPow > myPow * 1.5f && alliedBacked)
+        {
+            /* Nemesis all-in: send everything, no garrison. */
+            GameLog("  Nemesis all-in: diplomacy=%.1f power=%.0f vs %.0f "
+                    "allies=%d\n",
+                    aPlayer->diplomacy[ti], myPow, targetPow, alliedTroops);
+        }
+        else if (soldiersToSend > aPlayer->soldierCount - garrison)
+        {
+            soldiersToSend = aPlayer->soldierCount - garrison;
+            if (soldiersToSend < CPU_MIN_ATTACK_FORCE)
+            {
+                GameLog("  Garrison floor: can only send %d after keeping %d\n",
+                        soldiersToSend, garrison);
+                return false;
+            }
+        }
+    }
+
     battle.soldiersToAttackCount = soldiersToSend;
     battle.soldierCount = soldiersToSend;
 
