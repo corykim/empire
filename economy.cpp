@@ -88,9 +88,13 @@ void DecayDiplomacy(Player *aPlayer)
 
         float old = playerList[i].diplomacy[pi];
         playerList[i].diplomacy[pi] *= (1.0f - DIPLOMACY_DECAY_RATE);
-        GameLog("  Diplomacy decay: %s→%s %.3f→%.3f\n",
-                playerList[i].country->name, aPlayer->country->name,
-                old, playerList[i].diplomacy[pi]);
+
+        if (playerList[i].diplomacy[pi] != old)
+        {
+            GameLog("  Diplomacy decay: %s→%s %.3f→%.3f\n",
+                    playerList[i].country->name, aPlayer->country->name,
+                    old, playerList[i].diplomacy[pi]);
+        }
     }
 }
 
@@ -98,6 +102,7 @@ void DecayDiplomacy(Player *aPlayer)
 void UpdateDiplomacyAfterTurn(Player *aPlayer)
 {
     int pi = aPlayer - playerList;
+    float targetPower = ComputePlayerPower(aPlayer);
 
     if (aPlayer->attackedTargets == 0)
     {
@@ -110,12 +115,24 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                 if (i == pi || playerList[i].dead || playerList[i].human)
                     continue;
 
+                /* Envy factor: power disparity dampens positive shifts and
+                 * amplifies negative ones.  A player 2× your power gets
+                 * half the peace bonus; 3× gets a third.
+                 *   envyFactor = max(1.0, targetPower / observerPower) */
+                float observerPower = ComputePlayerPower(&playerList[i]);
+                float envyFactor = targetPower / observerPower;
+                if (envyFactor < 1.0f) envyFactor = 1.0f;
+
                 float old = playerList[i].diplomacy[pi];
+                float bonus = DIPLOMACY_PEACE_BONUS / envyFactor;
                 playerList[i].diplomacy[pi] = ClampDiplomacy(
-                    playerList[i].diplomacy[pi] + DIPLOMACY_PEACE_BONUS);
-                GameLog("  Diplomacy peace: %s→%s %.3f→%.3f\n",
-                        playerList[i].country->name, aPlayer->country->name,
-                        old, playerList[i].diplomacy[pi]);
+                    playerList[i].diplomacy[pi] + bonus);
+                if (playerList[i].diplomacy[pi] != old)
+                    GameLog("  Diplomacy peace: %s→%s %.3f→%.3f "
+                            "(envy=%.1f)\n",
+                            playerList[i].country->name,
+                            aPlayer->country->name,
+                            old, playerList[i].diplomacy[pi], envyFactor);
             }
         }
     }
@@ -126,6 +143,10 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
         {
             if (i == pi || playerList[i].dead || playerList[i].human)
                 continue;
+
+            float observerPower = ComputePlayerPower(&playerList[i]);
+            float envyFactor = targetPower / observerPower;
+            if (envyFactor < 1.0f) envyFactor = 1.0f;
 
             float old = playerList[i].diplomacy[pi];
 
@@ -138,8 +159,8 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                 if (t == i)
                 {
                     /* Attacked me — penalty proportional to land taken.
-                     * 20%+ of land → full penalty (4.0 = entire clamp range).
-                     * Less → proportional. */
+                     * Amplified by envy: a stronger player attacking you
+                     * feels more threatening. */
                     int landBefore = playerList[i].land
                                      + aPlayer->landTakenFrom[i];
                     float landPct = (landBefore > 0)
@@ -149,24 +170,35 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                     float penalty = (landPct / 0.20f) * (2.0f * DIPLOMACY_CLAMP);
                     if (penalty > 2.0f * DIPLOMACY_CLAMP)
                         penalty = 2.0f * DIPLOMACY_CLAMP;
-                    playerList[i].diplomacy[pi] -= penalty;
+                    playerList[i].diplomacy[pi] -= penalty * envyFactor;
                 }
                 else
                 {
-                    playerList[i].diplomacy[pi] +=
-                        PredictThirdPartyShift(i, t, pi);
+                    /* Third-party shift: positive shifts (attacking my
+                     * enemy) dampened by envy; negative shifts (attacking
+                     * my friend) amplified by envy. */
+                    float shift = PredictThirdPartyShift(i, t, pi);
+                    if (shift > 0.0f)
+                        shift /= envyFactor;
+                    else
+                        shift *= envyFactor;
+                    playerList[i].diplomacy[pi] += shift;
 
-                    /* Pile-on effect: when an ally attacks someone we
-                     * dislike, our hostility toward the target increases.
-                     * This encourages coordinated attacks. */
-                    if (playerList[i].diplomacy[pi] > 0.0f &&
-                        playerList[i].diplomacy[t] < 0.0f)
+                    /* Alliance solidarity: A attacks B, C is allied with A.
+                     * C sides with A proportional to how much more C
+                     * likes A than B.  If C likes B more, no effect.
+                     *   solidarity = max(0, C→A - C→B) × 0.3 */
+                    if (playerList[i].diplomacy[pi] > 0.0f)
                     {
-                        /* Solidarity: proportional to how much we like the attacker. */
-                        float solidarity = playerList[i].diplomacy[pi] * 0.3f;
-                        playerList[i].diplomacy[t] -= solidarity;
-                        playerList[i].diplomacy[t] = ClampDiplomacy(
-                            playerList[i].diplomacy[t]);
+                        float preference = playerList[i].diplomacy[pi]
+                                           - playerList[i].diplomacy[t];
+                        if (preference > 0.0f)
+                        {
+                            float solidarity = preference * 0.3f;
+                            playerList[i].diplomacy[t] -= solidarity;
+                            playerList[i].diplomacy[t] = ClampDiplomacy(
+                                playerList[i].diplomacy[t]);
+                        }
                     }
                 }
             }
@@ -175,9 +207,11 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                 playerList[i].diplomacy[pi]);
             if (playerList[i].diplomacy[pi] != old)
             {
-                GameLog("  Diplomacy attack: %s→%s %.3f→%.3f\n",
-                        playerList[i].country->name, aPlayer->country->name,
-                        old, playerList[i].diplomacy[pi]);
+                GameLog("  Diplomacy attack: %s→%s %.3f→%.3f "
+                        "(envy=%.1f)\n",
+                        playerList[i].country->name,
+                        aPlayer->country->name,
+                        old, playerList[i].diplomacy[pi], envyFactor);
             }
         }
     }
@@ -782,14 +816,21 @@ PopulationResult ComputePopulation(Player *aPlayer)
         aPlayer->soldierCount -= r.armyDeserted;
     }
 
-    /* Army efficiency (with division-by-zero guard). */
-    aPlayer->armyEfficiency = (10 * aPlayer->armyGrainFeed)
-                              / (aPlayer->armyGrainNeed > 0
-                                 ? aPlayer->armyGrainNeed : 1);
-    if (aPlayer->armyEfficiency < 5)
-        aPlayer->armyEfficiency = 5;
-    else if (aPlayer->armyEfficiency > 15)
-        aPlayer->armyEfficiency = 15;
+    /* Army efficiency: 10 = 100%, scales with feeding ratio.
+     * Default to 100% when there's no army to feed. */
+    if (aPlayer->armyGrainNeed > 0)
+    {
+        aPlayer->armyEfficiency = (10 * aPlayer->armyGrainFeed)
+                                  / aPlayer->armyGrainNeed;
+        if (aPlayer->armyEfficiency < 5)
+            aPlayer->armyEfficiency = 5;
+        else if (aPlayer->armyEfficiency > 15)
+            aPlayer->armyEfficiency = 15;
+    }
+    else
+    {
+        aPlayer->armyEfficiency = 10;
+    }
 
     /* Net population gain. */
     r.populationGain = r.born + r.immigrated

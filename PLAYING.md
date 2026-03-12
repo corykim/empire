@@ -222,12 +222,12 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 
 **How diplomacy affects CPU behavior:**
 - **Target selection**: CPUs are most likely to attack the player with the lowest score. Positive scores make you an unlikely target; negative scores paint a bullseye.
-- **Envy**: Even with positive scores, a country that grows much more powerful than its neighbors triggers envy. Envy grows cubically with power disparity and bypasses military caution. Anti-leader coordination boosts attack weight 1.5× and shifts investment toward military when any player exceeds 2× average power.
+- **Envy**: Power disparity affects all diplomacy changes. A player much stronger than you gains less from peaceful turns and alliance bonuses, but suffers amplified penalties from attacks. This prevents a dominant player from staying friendly with everyone while conquering them one by one. When any player exceeds 1.5× average power, CPUs suppress inter-CPU attacks and focus on the leader.
 - **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards). CPUs compare mill vs marketplace ROI and buy whichever is more profitable.
 - **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies. A garrison floor keeps 25% of the army as defense. Exception: CPUs can go all-in against a nemesis (maximum hostility, major power imbalance) when backed by allies.
 - **Defensive turtling**: When outmatched 3:1+ with fewer than 50 soldiers, CPUs skip attacks entirely and focus on rebuilding.
 - **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be. Betraying an ally is viewed far more negatively by observers than attacking an enemy.
-- **Alliance coordination**: CPUs consider allied strength (not just their own) when evaluating odds. When an ally attacks a shared enemy, other CPUs become more hostile toward that enemy and are more likely to pile on.
+- **Alliance solidarity**: When an ally attacks someone, CPUs side with whichever player they prefer. If you like your ally more than the target, your view of the target drops. If you like the target more, no effect. This creates realistic alliance dynamics where strong alliances pull CPUs into conflicts.
 - **Vulnerability detection**: CPUs detect when a player has recently lost soldiers or has zero defenders, and prioritize attacking them with full force.
 - **Barbarian expansion**: CPUs prioritize conquering barbarian lands in the early game when it's free growth with no diplomatic consequences.
 

@@ -83,9 +83,11 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 **Diplomacy lifecycle:**
 - **Init**: Random values in `[-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]` (±0.25)
 - **Decay**: All CPU scores decay 10% toward zero at the start of each player's turn
-- **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years)
-- **Direct attack**: Penalty proportional to land taken: `(landPct / 0.20) × 4.0`, capped at 4.0. Small raids (1%) cost -0.2; taking 20%+ costs the full -4.0. Tracked via `Player::landTakenFrom[]`.
-- **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it (amplified by target weakness × attacker strength)
+- **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years), dampened by envy
+- **Direct attack**: Penalty proportional to land taken: `(landPct / 0.20) × 4.0`, capped at 4.0, amplified by envy. Tracked via `Player::landTakenFrom[]`.
+- **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it. Positive shifts dampened by envy, negative shifts amplified.
+- **Alliance solidarity**: When A attacks B and C is allied with A, C's diplomacy toward B decreases proportional to `max(0, C→A - C→B) × 0.3`. If C likes B more than A, no effect. C sides with whichever ally they prefer.
+- **Envy weighting**: All diplomacy changes are weighted by `envyFactor = max(1.0, targetPower / observerPower)`. Power disparity dampens positive shifts and amplifies negative ones.
 - **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`.
 
 **Tuning constants** (in `economy.h`):
@@ -114,14 +116,14 @@ CPU turns follow: Grain → Population → **Military Planning** → Investments
 
 **Military Planning** (`ComputeDesiredTroopStrength`): Runs before investments to estimate army needs. Sets `player->desiredTroops = reserve + attackTroops`.
 
-**Investments** (`cpuInvest`): Guns-vs-butter split based on aggregate diplomacy. `gunsPct = 50 - avgDiplomacy * 30`, clamped to [20%, 80%]. Anti-leader boost: +15% guns when any player exceeds 2× average power. During opening years (1-3), butter budget is split by per-CPU capital allocation (market/mill/military percentages). After the opening, CPUs compare marginal mill vs marketplace ROI (`ComputeMillROI`, `ComputeMarketplaceROI`) and buy whichever is better. Guns budget buys palaces/foundries (whichever bottlenecks troop capacity).
+**Investments** (`cpuInvest`): Guns-vs-butter split based on aggregate diplomacy. `gunsPct = 50 - avgDiplomacy * 30`, clamped to [20%, 80%]. Anti-leader boost: +20% guns when any player exceeds 1.5× average power. During opening years (1-3), butter budget follows per-CPU capital allocation. After the opening, CPUs invest in priority order: (1) recruit soldiers to current equip capacity, (2) shipyards when base ≥ 200 and 30+ soldiers, (3) palaces/foundries, (4) mills when ROI favors them, (5) marketplaces with all remaining treasury (up to 10/turn). Guns budget buys palaces/foundries (whichever bottlenecks troop capacity).
 
 **Opening Capital Allocation**: Each CPU gets random market/mill/military percentages on setup, biased toward mills by difficulty (3.5× mill weight at L5, uniform at L0). CPUs sell up to 25% of land on turn 1 to fund their allocation. ~72% of Machiavelli CPUs go mill-heavy; ~28% try market or military openings for diversity.
 
 **Attack** (`selectTargetByDiplomacy`): Unified decision combining:
 1. **Diplomacy weight**: `max(0.01, 1 - score)`, amplified by weakness for enemies. Military caution penalty applied only to this component.
 2. **Envy**: `(targetPower/attackerPower - 1)³ × ENVY_SCALE` — cubic growth, bypasses caution entirely.
-3. **Anti-leader boost**: 1.5× weight when target exceeds 2× average power and CPU has negative diplomacy toward them.
+3. **Anti-leader focus**: When any player exceeds 1.5× average power, leader gets 2× weight, non-leaders get 0.25× (suppresses inter-CPU warfare).
 4. **Theory of mind**: `SimulateAttackOutcome` predicts diplomatic consequences and retaliation
 5. **Barbarians**: Weighted by attacker's military strength, competes in the same pool
 6. **Error blend**: `w = w * (1 - err/100) + 1.0 * (err/100)` — computed from continuous `cpuDifficulty`

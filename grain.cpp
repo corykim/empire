@@ -615,7 +615,14 @@ static void FeedCountry(Player *aPlayer)
     char  input[80];
     bool  validGrainToFeed;
 
-    /* Feed army. */
+    /* Feed army — skip if no soldiers. */
+    if (aPlayer->soldierCount == 0)
+    {
+        aPlayer->armyGrainFeed = 0;
+        GameLog("  Feed army: 0 (no soldiers)\n");
+    }
+    else
+    {
     validGrainToFeed = false;
     do
     {
@@ -660,6 +667,7 @@ static void FeedCountry(Player *aPlayer)
     aPlayer->armyGrainFeed = grainToFeed;
     GameLog("  Feed army: %d (need %d)  Grain: %d\n",
             grainToFeed, aPlayer->armyGrainNeed, aPlayer->grain);
+    } /* end else (soldierCount > 0) */
 
     /* Feed people. */
     validGrainToFeed = false;

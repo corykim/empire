@@ -115,13 +115,25 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
 
         float w = diplomacyW + envyW + vulnW;
 
-        /* Anti-leader boost: if target exceeds 2× average power and we
-         * have negative diplomacy toward them, increase attack weight. */
+        /* Anti-leader focus: if ANY player exceeds 1.5× average power,
+         * heavily suppress attacks on non-leader targets.  CPUs should
+         * focus their military on the leader, not fight each other.
+         * Leader gets 2× weight boost; non-leaders get 0.25× penalty. */
         float avgPow = ComputeAverageSurvivorPower();
-        if (targetPower > avgPow * CPU_LEADER_POWER_MULT
-            && aPlayer->diplomacy[idx] < 0.0f)
         {
-            w *= CPU_LEADER_ATTACK_BOOST;
+            int leaderIdx = FindLeaderIdx();
+            float leaderPower = (leaderIdx >= 0)
+                                ? ComputePlayerPower(&playerList[leaderIdx])
+                                : 0.0f;
+            bool leaderExists = (leaderPower > avgPow * CPU_LEADER_POWER_MULT);
+
+            if (leaderExists)
+            {
+                if (idx == leaderIdx)
+                    w *= CPU_LEADER_ATTACK_BOOST;
+                else
+                    w *= 0.25f;  /* Suppress inter-CPU attacks */
+            }
         }
 
         /* Theory of mind: simulate diplomatic consequences of this attack. */
@@ -665,6 +677,16 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
             aggregateDiplomacy, gunsPct, gunsBudget,
             100 - gunsPct, troopDeficit);
 
+    /* === TROOPS FIRST: recruit soldiers up to current capacity before
+     * buying any infrastructure.  This mirrors the human strategy of
+     * filling existing equip capacity before investing in buildings. */
+    {
+        SoldierCap earlyCapacity = ComputeSoldierCap(aPlayer);
+        int earlyRecruit = MIN(earlyCapacity.maxSoldiers, troopDeficit);
+        if (earlyRecruit > 0)
+            PurchaseSoldiers(aPlayer, earlyRecruit);
+    }
+
     /* === GUNS: military infrastructure === */
     if (troopDeficit > 0 && gunsBudget > 0)
     {
@@ -818,43 +840,36 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     }
     else
     {
-        /* Normal butter: choose marketplace vs mill based on marginal ROI.
-         * Marketplace ROI includes compounding bonus (merchant growth),
-         * so mills dominate early (high serf count, few mills) but
-         * marketplaces take over mid-game (merchant snowball). */
+        /* Normal butter: prioritize like a human player.
+         *   1. Big assets first (shipyards, then foundries/palaces)
+         *   2. Mills when ROI favors them
+         *   3. Marketplaces with remaining treasury (snowball) */
+        int shipBase = SHIP_MULT_MERCHANT * aPlayer->merchantCount
+                     + SHIP_MULT_MARKETPLACE * aPlayer->marketplaceCount
+                     + SHIP_MULT_FOUNDRY * aPlayer->foundryCount;
         float mktROI = ComputeMarketplaceROI(aPlayer);
         float millROI = ComputeMillROI(aPlayer);
 
-        GameLog("  ROI comparison: mill=%.4f mkt=%.4f\n", millROI, mktROI);
+        GameLog("  ROI: mill=%.4f mkt=%.4f  shipBase=%d  treasury=%d\n",
+                millROI, mktROI, shipBase, aPlayer->treasury);
 
-        if (millROI > mktROI && aPlayer->treasury >= COST_GRAIN_MILL)
+        /* Big assets: shipyards first (highest late-game ROI).
+         * Buy when infrastructure base justifies it and we have enough
+         * military strength to not need the gold for soldiers. */
+        if (shipBase >= 200 && aPlayer->treasury >= COST_SHIPYARD
+            && aPlayer->soldierCount >= 30)
         {
-            desired = MIN(aPlayer->treasury / COST_GRAIN_MILL, RandRange(2) + 1);
-            bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
-                                        desired, COST_GRAIN_MILL);
+            desired = MIN(aPlayer->treasury / COST_SHIPYARD, RandRange(2) + 1);
+            bought = PurchaseInvestment(aPlayer, &aPlayer->shipyardCount,
+                                        desired, COST_SHIPYARD);
             if (bought > 0)
-                GameLog("  Bought %d grain mills (mill ROI %.3f > mkt %.3f) (-%d)"
-                        "  Treasury: %d\n",
-                        bought, millROI, mktROI,
-                        bought * COST_GRAIN_MILL, aPlayer->treasury);
+                GameLog("  Bought %d shipyards (base=%d) (-%d)  Treasury: %d\n",
+                        bought, shipBase,
+                        bought * COST_SHIPYARD, aPlayer->treasury);
         }
 
-        /* Marketplaces — buy more aggressively when marketplace ROI leads. */
-        int mktBuyLimit = (mktROI >= millROI)
-                          ? RandRange(3) + 2     /* Marketplace phase: buy 2-5 */
-                          : RandRange(2);        /* Mill phase: buy 0-2 */
-        desired = MIN(aPlayer->treasury / COST_MARKETPLACE, mktBuyLimit);
-        bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
-                                    desired, COST_MARKETPLACE);
-        if (bought > 0)
-        {
-            boughtAnyMarketplaces = true;
-            GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
-                    bought, bought * COST_MARKETPLACE, aPlayer->treasury);
-        }
-
-        /* Palaces — economic pass (attract nobles for general growth). */
-        if (!boughtAnyPalaces)
+        /* Foundries / palaces when military needs them. */
+        if (!boughtAnyPalaces && aPlayer->treasury >= COST_PALACE)
         {
             desired = MIN(aPlayer->treasury / COST_PALACE, RandRange(2));
             bought = PurchaseInvestment(aPlayer, &aPlayer->palaceCount,
@@ -864,6 +879,47 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
                 boughtAnyPalaces = true;
                 GameLog("  Bought %d palaces (-%d)  Treasury: %d\n",
                         bought, bought * COST_PALACE, aPlayer->treasury);
+            }
+        }
+
+        if (aPlayer->treasury >= COST_FOUNDRY)
+        {
+            desired = MIN(aPlayer->treasury / COST_FOUNDRY, RandRange(2));
+            bought = PurchaseInvestment(aPlayer, &aPlayer->foundryCount,
+                                        desired, COST_FOUNDRY);
+            if (bought > 0)
+                GameLog("  Bought %d foundries (-%d)  Treasury: %d\n",
+                        bought, bought * COST_FOUNDRY, aPlayer->treasury);
+        }
+
+        /* Mills when ROI favors them. */
+        if (millROI > mktROI && aPlayer->treasury >= COST_GRAIN_MILL)
+        {
+            desired = MIN(aPlayer->treasury / COST_GRAIN_MILL, RandRange(2) + 1);
+            bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
+                                        desired, COST_GRAIN_MILL);
+            if (bought > 0)
+                GameLog("  Bought %d grain mills (ROI %.3f) (-%d)"
+                        "  Treasury: %d\n",
+                        bought, millROI,
+                        bought * COST_GRAIN_MILL, aPlayer->treasury);
+        }
+
+        /* Marketplaces with remaining treasury — the snowball engine.
+         * Buy as many as affordable, up to 10 per turn. */
+        {
+            int mktBuyLimit = aPlayer->treasury / COST_MARKETPLACE;
+            if (mktBuyLimit > 10) mktBuyLimit = 10;
+            if (mktBuyLimit > 0)
+            {
+                bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
+                                            mktBuyLimit, COST_MARKETPLACE);
+                if (bought > 0)
+                {
+                    boughtAnyMarketplaces = true;
+                    GameLog("  Bought %d marketplaces (-%d)  Treasury: %d\n",
+                            bought, bought * COST_MARKETPLACE, aPlayer->treasury);
+                }
             }
         }
     }
@@ -876,22 +932,6 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
         ApplyMarketplaceBonus(aPlayer);
     if (boughtAnyPalaces)
         ApplyPalaceBonus(aPlayer);
-
-    /* Foundries — economic pass. */
-    desired = MIN(aPlayer->treasury / COST_FOUNDRY, RandRange(2));
-    bought = PurchaseInvestment(aPlayer, &aPlayer->foundryCount,
-                                desired, COST_FOUNDRY);
-    if (bought > 0)
-        GameLog("  Bought %d foundries (-%d)  Treasury: %d\n",
-                bought, bought * COST_FOUNDRY, aPlayer->treasury);
-
-    /* Shipyards. */
-    desired = MIN(aPlayer->treasury / COST_SHIPYARD, RandRange(1));
-    bought = PurchaseInvestment(aPlayer, &aPlayer->shipyardCount,
-                                desired, COST_SHIPYARD);
-    if (bought > 0)
-        GameLog("  Bought %d shipyards (-%d)  Treasury: %d\n",
-                bought, bought * COST_SHIPYARD, aPlayer->treasury);
 
     /* Recruit soldiers — target the deficit, capped by capacity. */
     SoldierCap cap = ComputeSoldierCap(aPlayer);

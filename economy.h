@@ -164,9 +164,9 @@ constexpr int   CPU_OVERFEED_PCT         = 190;    /* CPU target people overfeed
 constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
 constexpr float CPU_AVG_WEATHER        = 3.5f;    /* Average weather for sustainability formulas */
 constexpr float CPU_MIN_ATTACK_RATIO     = 0.25f;  /* Min troops as fraction of est. target strength */
-constexpr float CPU_LEADER_POWER_MULT    = 2.0f;   /* Power ratio to trigger anti-leader mode */
-constexpr float CPU_LEADER_ATTACK_BOOST  = 1.5f;   /* Attack weight multiplier for leader target */
-constexpr float CPU_LEADER_GUNS_BOOST    = 15.0f;  /* Extra guns% when leader detected */
+constexpr float CPU_LEADER_POWER_MULT    = 1.5f;   /* Power ratio to trigger anti-leader mode */
+constexpr float CPU_LEADER_ATTACK_BOOST  = 2.0f;   /* Attack weight multiplier for leader target */
+constexpr float CPU_LEADER_GUNS_BOOST    = 20.0f;  /* Extra guns% when leader detected */
 constexpr float CPU_TURTLE_POWER_RATIO   = 3.0f;   /* Don't attack targets with this power ratio */
 constexpr int   CPU_OPENING_YEARS        = 3;       /* Years that opening allocation influences */
 
