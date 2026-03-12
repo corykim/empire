@@ -89,7 +89,7 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`.
 
 **Tuning constants** (in `economy.h`):
-`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`, `CPU_MIN_PLANTING_RESERVE`, `CPU_MIN_ATTACK_RATIO`, `CPU_LEADER_POWER_MULT`, `CPU_LEADER_ATTACK_BOOST`, `CPU_LEADER_GUNS_BOOST`, `CPU_TURTLE_POWER_RATIO`, `CPU_OPENING_YEARS`
+`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`, `CPU_AVG_WEATHER`, `CPU_MIN_ATTACK_RATIO`, `CPU_LEADER_POWER_MULT`, `CPU_LEADER_ATTACK_BOOST`, `CPU_LEADER_GUNS_BOOST`, `CPU_TURTLE_POWER_RATIO`, `CPU_OPENING_YEARS`
 
 **Key helpers:**
 - `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks
@@ -102,8 +102,10 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - `ComputeVulnerability(targetIdx)` — scores recent losses, zero soldiers, low absolute count
 - `ComputeExpectedRevenue(player, salesTax, incomeTax)` — deterministic revenue prediction
 - `OptimizeTaxRates(player)` — brute-force 756 combinations for optimal sales/income rates
+- `ComputeUsableLand(player)` — land minus occupied space (serfs, nobles, merchants, soldiers, palaces)
+- `ComputeLandSustainabilityFloor(player)` — min usable land to feed population at avg weather
 - `ComputeMarketplaceROI(player)`, `ComputeMillROI(player)` — marginal revenue per gold for next building
-- `ComputeAverageSurvivorPower()`, `FindLeaderIdx()` — anti-leader coordination helpers
+- `ComputeAverageSurvivorPower()`, `ComputeAverageSoldierCount()`, `FindLeaderIdx()` — cross-player metrics
 - `LogAllDiplomacy(label)`, `LogPlayerDiplomacy(player)` — structured logging
 
 ### CPU Turn Architecture

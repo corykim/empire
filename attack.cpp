@@ -432,18 +432,29 @@ static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
         return false;
 
     /* Attack force threshold: don't send too few troops against a player.
-     * Estimate target military from power score (soldiers dominate it). */
+     * Scale the threshold based on the overall military landscape —
+     * when everyone has small armies, lower the bar. */
     if (aTargetPlayer != nullptr)
     {
+        float avgSoldiers = ComputeAverageSoldierCount();
+
+        /* Scale attack ratio: full 25% when avg army is 100+, drops to
+         * 10% when avg army is 20 (early game / everyone is weak). */
+        float scaledRatio = CPU_MIN_ATTACK_RATIO;
+        if (avgSoldiers < 100.0f)
+            scaledRatio *= (0.4f + 0.6f * avgSoldiers / 100.0f);
+
         float targetPower = ComputePlayerPower(aTargetPlayer);
         int estimatedMilitary = static_cast<int>(targetPower * 0.5f);
-        int minForce = static_cast<int>(estimatedMilitary * CPU_MIN_ATTACK_RATIO);
+        int minForce = static_cast<int>(estimatedMilitary * scaledRatio);
         if (minForce < CPU_MIN_ATTACK_FORCE)
             minForce = CPU_MIN_ATTACK_FORCE;
         if (soldiersToSend < minForce)
         {
-            GameLog("  Aborting attack: %d soldiers < minimum %d\n",
-                    soldiersToSend, minForce);
+            GameLog("  Aborting attack: %d soldiers < minimum %d "
+                    "(ratio=%.0f%% avg=%.0f)\n",
+                    soldiersToSend, minForce,
+                    scaledRatio * 100.0f, avgSoldiers);
             return false;
         }
     }

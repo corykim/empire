@@ -374,15 +374,20 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     /*
      * EMERGENCY grain recovery: if grain is critically low (can't feed
      * even 50% of need), sell land and buy grain aggressively.
+     * Respect the land sustainability floor: keep enough usable land
+     * to grow a harvest that feeds the population at average weather.
      */
     if (aPlayer->grain < totalNeed / 2)
     {
-        /* Sell up to 10% of land to fund grain purchases. */
-        int maxSell = aPlayer->land / 10;
+        int minUsable = ComputeLandSustainabilityFloor(aPlayer);
+        int currentUsable = ComputeUsableLand(aPlayer);
+        int sellable = currentUsable - minUsable;
+        int maxSell = MIN(aPlayer->land / 10, MAX(0, sellable));
         if (maxSell > 0)
         {
             SellLandToBarbarians(aPlayer, maxSell);
-            GameLog("  EMERGENCY: sold %d acres for grain recovery\n", maxSell);
+            GameLog("  EMERGENCY: sold %d acres for grain recovery "
+                    "(floor %d usable)\n", maxSell, minUsable);
         }
 
         /* Buy grain from cheapest seller with all available treasury. */
@@ -512,7 +517,7 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
 
     /*
      * SELL LAND as a last resort when treasury is empty.
-     * Relax the land surplus check when grain is critically low.
+     * Respect the land sustainability floor.
      */
     int population = aPlayer->serfCount + aPlayer->merchantCount
                      + aPlayer->nobleCount + aPlayer->soldierCount;
@@ -522,10 +527,15 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     {
         int acresNeeded = (COST_MARKETPLACE - aPlayer->treasury + 1)
                           / static_cast<int>(LAND_SELL_PRICE);
-        int maxSell = aPlayer->land / (grainEmergency ? 10 : 20);
+        /* Enforce sustainability floor on land sales. */
+        int minUsable = ComputeLandSustainabilityFloor(aPlayer);
+        int curUsable = ComputeUsableLand(aPlayer);
+        int sellable = MAX(0, curUsable - minUsable);
+        int maxSell = MIN(aPlayer->land / (grainEmergency ? 10 : 20), sellable);
         if (acresNeeded > maxSell)
             acresNeeded = maxSell;
-        SellLandToBarbarians(aPlayer, acresNeeded);
+        if (acresNeeded > 0)
+            SellLandToBarbarians(aPlayer, acresNeeded);
     }
 }
 
@@ -700,44 +710,67 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
 
     /* During opening years, use the per-CPU capital allocation.
      * CPUs sell land to fund their allocation — just like a human
-     * player selling acres for an early mill or marketplace rush. */
+     * player selling acres for an early mill or marketplace rush.
+     *
+     * Land sustainability: keep enough usable land to grow a harvest
+     * that feeds the population at average weather (3.5/6).
+     *   minUsableLand = totalGrainNeed / (3.5 × yieldMult)
+     * Mills reduce the floor (higher yield = less land needed). */
     if (year <= CPU_OPENING_YEARS && !aPlayer->human)
     {
+        /* Compute the land sustainability floor. */
+        int minUsableLand = ComputeLandSustainabilityFloor(aPlayer);
+        int currentUsable = ComputeUsableLand(aPlayer);
+
+        /* How many acres can we sell without breaching the floor? */
+        int sellableAcres = currentUsable - minUsableLand;
+        if (sellableAcres < 0) sellableAcres = 0;
+
         /* Compute desired purchases from allocation percentages. */
-        int wantMills = aPlayer->openMillPct > 15
-                        ? MAX(1, aPlayer->openMillPct / 25) : 0;
-        int wantMkts = aPlayer->openMarketPct > 15
-                       ? MAX(1, aPlayer->openMarketPct / 20) : 0;
-        int wantMilitary = aPlayer->openMilitaryPct > 30 ? 1 : 0;
+        int wantMills = aPlayer->openMillPct > 10
+                        ? MAX(1, aPlayer->openMillPct / 20) : 0;
+        int wantMkts = aPlayer->openMarketPct > 10
+                       ? MAX(1, aPlayer->openMarketPct / 15) : 0;
+        int wantMilitary = aPlayer->openMilitaryPct > 25 ? 1 : 0;
 
         int totalCost = wantMills * COST_GRAIN_MILL
                       + wantMkts * COST_MARKETPLACE
                       + wantMilitary * COST_PALACE;
 
-        /* Sell enough land to fund the opening (up to 25% of land). */
-        if (totalCost > aPlayer->treasury)
+        /* Sell land to fund the opening, capped by sustainability floor. */
+        if (totalCost > aPlayer->treasury && sellableAcres > 0)
         {
             int deficit = totalCost - aPlayer->treasury;
             int sellAcres = MIN(
                 (deficit + static_cast<int>(LAND_SELL_PRICE) - 1)
                     / static_cast<int>(LAND_SELL_PRICE),
-                aPlayer->land / 4);
+                sellableAcres);
             if (sellAcres > 0)
             {
                 SellLandToBarbarians(aPlayer, sellAcres);
                 GameLog("  Opening land sale: %d acres for %d gold  "
-                        "Treasury: %d\n",
+                        "Treasury: %d  (floor: %d usable, have %d)\n",
                         sellAcres,
                         sellAcres * static_cast<int>(LAND_SELL_PRICE),
-                        aPlayer->treasury);
+                        aPlayer->treasury, minUsableLand, currentUsable);
             }
         }
 
+        /* Reduce mill purchases if they would push usable land below floor.
+         * Each mill doesn't directly occupy land, but selling land to buy
+         * mills is what shrinks usable land.  If we can't afford more mills
+         * without selling below the floor, buy fewer. */
+        int canAfford = aPlayer->treasury / COST_GRAIN_MILL;
+        if (wantMills > canAfford)
+            wantMills = canAfford;
+
         GameLog("  Opening allocation: mkt=%d%% mill=%d%% mil=%d%%  "
-                "want: %d mkts, %d mills, %d palaces  cost: %d\n",
+                "want: %d mkts, %d mills, %d palaces  cost: %d  "
+                "landFloor: %d\n",
                 aPlayer->openMarketPct, aPlayer->openMillPct,
                 aPlayer->openMilitaryPct,
-                wantMkts, wantMills, wantMilitary, totalCost);
+                wantMkts, wantMills, wantMilitary, totalCost,
+                minUsableLand);
 
         /* Buy mills first (highest ROI at L5). */
         if (wantMills > 0)
@@ -785,24 +818,32 @@ void CPUStrategy::cpuInvest(Player *aPlayer)
     }
     else
     {
-        /* Normal butter: choose marketplace vs mill based on marginal ROI. */
+        /* Normal butter: choose marketplace vs mill based on marginal ROI.
+         * Marketplace ROI includes compounding bonus (merchant growth),
+         * so mills dominate early (high serf count, few mills) but
+         * marketplaces take over mid-game (merchant snowball). */
         float mktROI = ComputeMarketplaceROI(aPlayer);
         float millROI = ComputeMillROI(aPlayer);
 
-        if (millROI > mktROI * 1.1f && aPlayer->treasury >= COST_GRAIN_MILL)
+        GameLog("  ROI comparison: mill=%.4f mkt=%.4f\n", millROI, mktROI);
+
+        if (millROI > mktROI && aPlayer->treasury >= COST_GRAIN_MILL)
         {
             desired = MIN(aPlayer->treasury / COST_GRAIN_MILL, RandRange(2) + 1);
             bought = PurchaseInvestment(aPlayer, &aPlayer->grainMillCount,
                                         desired, COST_GRAIN_MILL);
             if (bought > 0)
-                GameLog("  Bought %d grain mills (ROI %.3f vs mkt %.3f) (-%d)"
+                GameLog("  Bought %d grain mills (mill ROI %.3f > mkt %.3f) (-%d)"
                         "  Treasury: %d\n",
                         bought, millROI, mktROI,
                         bought * COST_GRAIN_MILL, aPlayer->treasury);
         }
 
-        /* Marketplaces. */
-        desired = MIN(aPlayer->treasury / COST_MARKETPLACE, RandRange(3));
+        /* Marketplaces — buy more aggressively when marketplace ROI leads. */
+        int mktBuyLimit = (mktROI >= millROI)
+                          ? RandRange(3) + 2     /* Marketplace phase: buy 2-5 */
+                          : RandRange(2);        /* Mill phase: buy 0-2 */
+        desired = MIN(aPlayer->treasury / COST_MARKETPLACE, mktBuyLimit);
         bought = PurchaseInvestment(aPlayer, &aPlayer->marketplaceCount,
                                     desired, COST_MARKETPLACE);
         if (bought > 0)

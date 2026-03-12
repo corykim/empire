@@ -1037,8 +1037,14 @@ static void CPUGrainPhase(Player *aPlayer)
 
     /*
      * CPU feeds people above the required amount when surplus allows,
-     * to attract immigrants.  Only overfeed if grain after feeding
-     * still exceeds the safe reserve.
+     * to attract immigrants.
+     *
+     * Sustainability constraint: after feeding, remaining grain (with 10%
+     * rat loss) plus next year's harvest must be enough to feed at the
+     * same level again.  This prevents the grain death spiral.
+     *
+     *   (grain - peopleFeed) * 0.9 + harvest >= armyNeed + peopleFeed
+     *   peopleFeed <= (grain * 0.9 + harvest - armyNeed) / 1.9
      */
     int optimalOverfeed = CPU_OVERFEED_PCT;
     int errorRange = ComputeErrorPct(aPlayer->cpuDifficulty);
@@ -1048,55 +1054,31 @@ static void CPUGrainPhase(Player *aPlayer)
         overfeedPct = 100;
     int desiredFeed = aPlayer->peopleGrainNeed * overfeedPct / 100;
 
-    /* Clamp overfeed to preserve safe reserve — UNLESS the CPU can
-     * achieve immigration by overfeeding above 150%.  Immigration
-     * (nobles, merchants) is more valuable than grain reserves. */
-    int maxFeed = aPlayer->grain - safeReserve;
-    int immigrationThreshold = static_cast<int>(
-        aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT);
-    bool canAchieveImmigration = (aPlayer->grain - aPlayer->armyGrainFeed)
-                                  >= immigrationThreshold;
-    if (canAchieveImmigration)
-    {
-        /* Allow feeding up to all available grain (minus army feed).
-         * Immigration is worth the reserve risk. */
-        maxFeed = aPlayer->grain - aPlayer->armyGrainFeed;
-        GameLog("  Immigration possible — allowing full overfeed\n");
-    }
-    else if (aPlayer->yearsSinceImmigration >= 2 && aPlayer->grain > desiredFeed)
-    {
-        /* Can't quite reach immigration, but dip into reserve to try. */
-        float keepPct = (aPlayer->yearsSinceImmigration >= 3) ? 0.20f : 0.50f;
-        int desperateMax = aPlayer->grain - static_cast<int>(safeReserve * keepPct);
-        if (desperateMax > maxFeed) maxFeed = desperateMax;
-        GameLog("  Immigration drought (%d years) — dipping to %d%% reserve\n",
-                aPlayer->yearsSinceImmigration, static_cast<int>(keepPct * 100));
-    }
-    if (maxFeed < aPlayer->peopleGrainNeed)
-        maxFeed = aPlayer->peopleGrainNeed;  /* Always feed at least 100% */
-    if (desiredFeed > maxFeed)
-        desiredFeed = maxFeed;
+    /* Estimate next year's harvest: discount this year's harvest by a
+     * risk factor.  Mills insure against bad weather, so mill-heavy
+     * CPUs can afford to overfeed more aggressively.
+     *   Base risk: expect 75% of this year's harvest
+     *   Mill bonus: +3% per mill (up to +18%), reflecting weather insurance */
+    float millInsurance = 0.03f * static_cast<float>(
+        MIN(aPlayer->grainMillCount, 6));
+    float harvestRisk = 0.75f + millInsurance;
+    int expectedHarvest = static_cast<int>(
+        aPlayer->grainHarvest * harvestRisk);
 
-    /* Ensure a minimum planting reserve after ALL feeding.
-     * Without this, CPUs overfeed to ~190%, leaving near-zero grain,
-     * which means next year's usable land = 0 and harvest collapses. */
+    int sustainableFeed = static_cast<int>(
+        (aPlayer->grain * 0.9f
+         + static_cast<float>(expectedHarvest)
+         - static_cast<float>(aPlayer->armyGrainNeed))
+        / 1.9f);
+    if (sustainableFeed < aPlayer->peopleGrainNeed)
+        sustainableFeed = aPlayer->peopleGrainNeed;
+
+    if (desiredFeed > sustainableFeed)
     {
-        int usableLand = aPlayer->land - aPlayer->serfCount
-                         - 2 * aPlayer->nobleCount - aPlayer->merchantCount
-                         - 2 * aPlayer->soldierCount - aPlayer->palaceCount;
-        if (usableLand < 0) usableLand = 0;
-        int seedRate = EffectiveSeedRate(aPlayer);
-        int minPlanting = static_cast<int>(
-            CPU_MIN_PLANTING_RESERVE * usableLand / seedRate);
-        int grainAfterFeed = aPlayer->grain - desiredFeed;
-        if (grainAfterFeed < minPlanting && desiredFeed > aPlayer->peopleGrainNeed)
-        {
-            desiredFeed = aPlayer->grain - minPlanting;
-            if (desiredFeed < aPlayer->peopleGrainNeed)
-                desiredFeed = aPlayer->peopleGrainNeed;
-            GameLog("  Planting reserve clamp: reduced feed to %d (reserve %d)\n",
-                    desiredFeed, minPlanting);
-        }
+        GameLog("  Sustainability clamp: %d → %d (grain=%d harvest=%d)\n",
+                desiredFeed, sustainableFeed, aPlayer->grain,
+                aPlayer->grainHarvest);
+        desiredFeed = sustainableFeed;
     }
 
     aPlayer->peopleGrainFeed = MIN(desiredFeed, aPlayer->grain);

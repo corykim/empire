@@ -506,10 +506,7 @@ int EffectiveSeedRate(Player *aPlayer)
 int ComputeWorstCaseHarvest(Player *aPlayer)
 {
     int harvest = static_cast<int>(
-        1 * (aPlayer->land - aPlayer->serfCount
-             - 2 * aPlayer->nobleCount - aPlayer->merchantCount
-             - 2 * aPlayer->soldierCount - aPlayer->palaceCount)
-        * EffectiveYieldMult(aPlayer));
+        ComputeUsableLand(aPlayer) * EffectiveYieldMult(aPlayer));
     return (harvest > 0) ? harvest : 0;
 }
 
@@ -609,6 +606,43 @@ int FindLeaderIdx()
 }
 
 
+float ComputeAverageSoldierCount()
+{
+    int total = 0;
+    int count = 0;
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (!playerList[i].dead)
+        {
+            total += playerList[i].soldierCount;
+            count++;
+        }
+    }
+    return (count > 0) ? static_cast<float>(total) / count : 20.0f;
+}
+
+
+int ComputeUsableLand(Player *aPlayer)
+{
+    int usable = aPlayer->land
+                 - aPlayer->serfCount
+                 - 2 * aPlayer->nobleCount
+                 - aPlayer->palaceCount
+                 - aPlayer->merchantCount
+                 - 2 * aPlayer->soldierCount;
+    return (usable > 0) ? usable : 0;
+}
+
+
+int ComputeLandSustainabilityFloor(Player *aPlayer)
+{
+    int totalNeed = aPlayer->peopleGrainNeed + aPlayer->armyGrainNeed;
+    float yieldMult = EffectiveYieldMult(aPlayer);
+    return static_cast<int>(
+        static_cast<float>(totalNeed) / (CPU_AVG_WEATHER * yieldMult));
+}
+
+
 float ComputeMarketplaceROI(Player *aPlayer)
 {
     int expRand = 36;
@@ -617,6 +651,10 @@ float ComputeMarketplaceROI(Player *aPlayer)
     int count = aPlayer->marketplaceCount;
     float revNow = (count > 0) ? pow(count * perUnit, REV_EXP_INVESTMENT) : 0.0f;
     float revNext = pow((count + 1) * perUnit, REV_EXP_INVESTMENT);
+    /* No explicit compounding bonus needed — at 0% sales tax, marketplace
+     * ROI naturally exceeds mill ROI, driving the post-opening transition.
+     * Mills dominate the opening phase (forced by allocation bias), then
+     * marketplaces take over as the ROI comparison dictates. */
     return (revNext - revNow) / static_cast<float>(COST_MARKETPLACE);
 }
 
@@ -631,6 +669,9 @@ float ComputeMillROI(Player *aPlayer)
     int count = aPlayer->grainMillCount;
     float revNow = (count > 0) ? pow(count * perUnit, REV_EXP_INVESTMENT) : 0.0f;
     float revNext = pow((count + 1) * perUnit, REV_EXP_INVESTMENT);
+    /* No compounding bonus — mill revenue scales with serfs (slow growth)
+     * and has sqrt-like diminishing returns.  Mills don't attract more
+     * serfs the way marketplaces attract merchants. */
     return (revNext - revNow) / static_cast<float>(COST_GRAIN_MILL);
 }
 
@@ -644,12 +685,7 @@ void ComputeGrainPhase(Player *aPlayer)
     aPlayer->grain -= (aPlayer->grain * aPlayer->ratPct) / 100;
 
     /* Usable land = total land minus space occupied by people and buildings. */
-    usableLand =   aPlayer->land
-                 - aPlayer->serfCount
-                 - (2 * aPlayer->nobleCount)
-                 - aPlayer->palaceCount
-                 - aPlayer->merchantCount
-                 - (2 * aPlayer->soldierCount);
+    usableLand = ComputeUsableLand(aPlayer);
 
     /* Each bushel of grain can seed acres based on mill count. */
     {

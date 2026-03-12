@@ -162,7 +162,7 @@ constexpr int   SACK_THRESHOLD_DIV    = 3;      /* Sack if capture > 1/N of land
 /* CPU behavior tuning (shared across files). */
 constexpr int   CPU_OVERFEED_PCT         = 190;    /* CPU target people overfeed percentage */
 constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
-constexpr float CPU_MIN_PLANTING_RESERVE = 0.30f;  /* Fraction of farmable land to keep seedable */
+constexpr float CPU_AVG_WEATHER        = 3.5f;    /* Average weather for sustainability formulas */
 constexpr float CPU_MIN_ATTACK_RATIO     = 0.25f;  /* Min troops as fraction of est. target strength */
 constexpr float CPU_LEADER_POWER_MULT    = 2.0f;   /* Power ratio to trigger anti-leader mode */
 constexpr float CPU_LEADER_ATTACK_BOOST  = 1.5f;   /* Attack weight multiplier for leader target */
@@ -394,6 +394,33 @@ float ComputeAverageSurvivorPower();
  */
 
 int FindLeaderIdx();
+
+
+/*
+ * Compute average soldier count across all living players.
+ */
+
+float ComputeAverageSoldierCount();
+
+
+/*
+ * Compute usable land: total land minus space occupied by people and
+ * buildings.  Shared by grain phase, CPU investment, and land-sale logic.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+int ComputeUsableLand(Player *aPlayer);
+
+
+/*
+ * Compute the minimum usable land needed to sustain the population at
+ * average weather (3.5/6).  Mills reduce the requirement via higher yield.
+ *
+ *   aPlayer                Player to evaluate.
+ */
+
+int ComputeLandSustainabilityFloor(Player *aPlayer);
 
 
 /*
