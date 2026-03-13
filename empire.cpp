@@ -24,6 +24,7 @@
 /* Local includes. */
 #include "empire.h"
 #include "economy.h"
+#include "diplomacy.h"
 #include "cpu_strategy.h"
 #include "grain.h"
 #include "population.h"
@@ -194,6 +195,12 @@ int main(int argc, char *argv[])
             strcmp(argv[a], "-l") == 0)
         {
             logging = true;
+            /* Optional filename argument: -l <filename> */
+            if (a + 1 < argc && argv[a + 1][0] != '-')
+            {
+                logFileName = argv[a + 1];
+                a++;
+            }
         }
         if (strcmp(argv[a], "--fast") == 0 ||
             strcmp(argv[a], "-f") == 0)
@@ -239,9 +246,6 @@ int main(int argc, char *argv[])
             turnOrder[i] = turnOrder[j];
             turnOrder[j] = tmp;
         }
-
-        /* Log the diplomacy table at the start of each year. */
-        LogAllDiplomacy("Start of Year");
 
         /* Go through each player. */
         for (i = 0; i < COUNTRY_COUNT; i++)
@@ -858,6 +862,7 @@ static void PlayHuman(Player *aPlayer)
             aPlayer->title, aPlayer->name);
     GameLog("================================================================"
             "================\n");
+    LogAllDiplomacy("Diplomacy");
 
     /* Show grain screen. */
     GameLog("--- Grain Phase ---\n");
@@ -914,6 +919,7 @@ static void PlayCPU(Player *aPlayer)
             aPlayer->title, aPlayer->name);
     GameLog("================================================================"
             "================\n");
+    LogAllDiplomacy("Diplomacy");
     printw("\n\n");
     ShowMessage("One moment -- %s %s's turn . . .", aPlayer->title,
                 aPlayer->name);
@@ -1043,7 +1049,7 @@ static void CPUGrainPhase(Player *aPlayer)
         for (int j = 0; j < COUNTRY_COUNT; j++) {
             Player *p = &playerList[j];
             if (p != aPlayer && !p->dead && p->grainForSale > 0
-                && p->grainPrice <= GRAIN_PRICE_BASE * 2.0f)
+                && p->grainPrice <= GRAIN_PRICE_BASE * CPU_GRAIN_MAX_BUY_MULT)
                 if (!cheapest || p->grainPrice < cheapest->grainPrice)
                     cheapest = p;
         }

@@ -22,7 +22,8 @@ Requires: `g++` or any C++17 compiler, `ncurses` (Unix/macOS) or `PDCurses` (Win
 |------|---------|
 | `platform.h` | Cross-platform header: ncurses/PDCurses selection, `SleepUs()` replacing `usleep()` |
 | `empire.h` | All shared types (Country, Player, Battle), globals, macros, prototypes |
-| `economy.h` / `economy.cpp` | Centralized economic rules: grain, population, revenue, purchases, trading, diplomacy, tax optimization, military planning. Single source of truth for investment costs and tuning constants. |
+| `economy.h` / `economy.cpp` | Centralized economic rules: grain, population, revenue, purchases, trading, tax optimization. Single source of truth for investment costs and tuning constants. |
+| `diplomacy.h` / `diplomacy.cpp` | Diplomacy system: scores, decay, envy, solidarity, power assessment, attack weighting, strategic simulation. All diplomacy constants and functions. |
 | `cpu_strategy.h` | CPUStrategy abstract base class + 5 derived classes. Each has `errorPct` for decision quality. |
 | `ui.h` / `ui.cpp` | UI helper library: colors, dynamic sizing, screen templates, separators, column formatting |
 | `empire.cpp` | Main loop, setup screens, CPU economic phases, ShowMessage, FmtNum, ParseNum |
@@ -76,7 +77,7 @@ The game uses the full terminal (dynamic `winrows` x `wincols`). Content flows f
 - **`RandRange(n)`**: Returns 1..n (1-based, not 0-based). Returns 0 if n <= 0.
 - **Battle helpers**: `InitBattle()`, `SetBattleTarget()`, `ApplyBattleResults()` — shared between human and CPU attack paths.
 
-### Diplomacy System (`economy.h` / `economy.cpp`)
+### Diplomacy System (`diplomacy.h` / `diplomacy.cpp`)
 
 CPU players track diplomacy scores (float) toward every other player. Scores drive attack targeting, investment priorities, and retaliation planning.
 
@@ -87,7 +88,8 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years), dampened by envy
 - **Direct attack**: Penalty proportional to land taken: `(landPct / 0.20) × 4.0`, capped at 4.0, amplified by envy. Tracked via `Player::landTakenFrom[]`.
 - **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it. Positive shifts dampened by envy, negative shifts amplified.
-- **Alliance solidarity**: Iterative convergence — when A attacks B and C is allied with A, C's diplomacy toward B decreases proportional to `max(0, C→A - C→B) × scale`. Scale halves each pass (0.3, 0.15, 0.075...) until shifts < 0.01. If C likes B more than A, no effect.
+- **Alliance solidarity**: Iterative convergence based on `preference = C→attacker - C→target`. If positive: target penalized (pile on). If negative: attacker penalized (punish aggressor). Scale halves each pass (0.3, 0.15, 0.075...) until shifts < 0.01. Victims are protected, aggressors are punished.
+- **Attacker self-penalty**: When a player attacks, their own diplomacy toward the target drops by `DIPLOMACY_CLAMP/4` (small raid) to full `DIPLOMACY_CLAMP` (major assault).
 - **Envy weighting**: All diplomacy changes weighted by `envyFactor = max(1.0, targetPower / observerPower)`. Power disparity dampens positive shifts and amplifies negative ones.
 - **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`. Diplomacy table logged at start of each year.
 
@@ -124,7 +126,7 @@ CPU turns follow: Grain → Population → **Military Planning** → Investments
 **Attack** (`selectTargetByDiplomacy`): Unified decision combining:
 1. **Diplomacy weight**: `max(0.01, 1 - score)`, amplified by weakness for enemies. Military caution penalty applied only to this component.
 2. **Envy**: `(targetPower/attackerPower - 1)³ × ENVY_SCALE` — cubic growth, bypasses caution entirely.
-3. **Anti-leader focus**: When any player exceeds 1.5× average power, leader gets 2× weight, non-leaders get 0.25× (suppresses inter-CPU warfare).
+3. **Pairwise power targeting**: Quadratic boost `1 + (ratio-1)² × (BOOST-1)` toward ANY player stronger than the attacker. Weaker targets suppressed when a dominant threat exists. Not limited to the single leader.
 4. **Theory of mind**: `SimulateAttackOutcome` predicts diplomatic consequences and retaliation
 5. **Barbarians**: Weighted by attacker's military strength, competes in the same pool
 6. **Error blend**: `w = w * (1 - err/100) + 1.0 * (err/100)` — computed from continuous `cpuDifficulty`

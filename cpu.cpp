@@ -14,6 +14,7 @@
 
 #include "empire.h"
 #include "cpu_strategy.h"
+#include "diplomacy.h"
 
 
 /* CPU behavior constants (used only in this file). */
@@ -115,32 +116,39 @@ int CPUStrategy::selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
 
         float w = diplomacyW + envyW + vulnW;
 
-        /* Anti-leader focus: if ANY player exceeds 1.5× average power,
-         * heavily suppress attacks on non-leader targets.  CPUs should
-         * focus their military on the leader, not fight each other.
-         * Suppression scales with the leader's dominance — the more
-         * dominant the leader, the harder it is to justify inter-CPU war. */
-        float avgPow = ComputeAverageSurvivorPower();
+        /* Pairwise power-based targeting: boost weight toward anyone
+         * stronger than the attacker, scaled by the power ratio.
+         * This naturally focuses on the leader but also targets a strong
+         * #2 — envy isn't exclusive to the single top player.
+         * Targets weaker than the attacker get suppressed when ANY
+         * player exceeds CPU_LEADER_POWER_MULT × attacker's power. */
         {
-            int leaderIdx = FindLeaderIdx();
-            float leaderPower = (leaderIdx >= 0)
-                                ? ComputePlayerPower(&playerList[leaderIdx])
-                                : 0.0f;
-            float leaderRatio = (avgPow > 0.0f)
-                                ? leaderPower / avgPow : 1.0f;
-
-            if (leaderRatio > CPU_LEADER_POWER_MULT)
+            float powerRatio = targetPower / attackerPower;
+            if (powerRatio > 1.0f)
             {
-                if (idx == leaderIdx)
+                /* Target is stronger: quadratic boost.  Small gaps
+                 * (1.1×) get gentle boost; large gaps (2×+) get sharp. */
+                float gap = powerRatio - 1.0f;
+                float boost = 1.0f + gap * gap
+                              * (CPU_LEADER_ATTACK_BOOST - 1.0f);
+                w *= boost;
+            }
+            else
+            {
+                /* Target is weaker: suppress if a dominant player exists.
+                 * The stronger the dominant player relative to us, the
+                 * less we should waste troops on weaker targets. */
+                float maxThreatRatio = 0.0f;
+                for (int m = 0; m < livingCount; m++)
                 {
-                    w *= CPU_LEADER_ATTACK_BOOST;
+                    int mi = livingIndices[m];
+                    float mp = ComputePlayerPower(&playerList[mi]);
+                    float mr = mp / attackerPower;
+                    if (mr > maxThreatRatio) maxThreatRatio = mr;
                 }
-                else
+                if (maxThreatRatio > CPU_LEADER_POWER_MULT)
                 {
-                    /* Scale suppression: at 1.5× → 0.1×, at 2× → 0.05×,
-                     * at 3× → near zero.  Inter-CPU attacks become almost
-                     * impossible when a dominant leader exists. */
-                    float suppress = 0.15f / leaderRatio;
+                    float suppress = 1.0f / maxThreatRatio;
                     w *= suppress;
                 }
             }
@@ -444,7 +452,7 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
             Player *p = &playerList[i];
             if (p == aPlayer || p->dead || p->grainForSale <= 0)
                 continue;
-            if (p->grainPrice <= GRAIN_PRICE_BASE * 2.0f)
+            if (p->grainPrice <= GRAIN_PRICE_BASE * CPU_GRAIN_MAX_BUY_MULT)
             {
                 if (cheapest == nullptr || p->grainPrice < cheapest->grainPrice)
                     cheapest = p;
@@ -557,7 +565,7 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
             bool desperate = (aPlayer->grain < totalNeed / 2);
             float maxPrice = desperate
                              ? GRAIN_PRICE_MAX
-                             : GRAIN_PRICE_BASE * 2.0f;
+                             : GRAIN_PRICE_BASE * CPU_GRAIN_MAX_BUY_MULT;
 
             if (cheapest != nullptr && cheapest->grainPrice <= maxPrice)
             {
@@ -583,8 +591,8 @@ void CPUStrategy::manageGrainTrade(Player *aPlayer)
     if (aPlayer->grainForSale > 0)
     {
         float targetPrice = ComputeGrainTargetPrice(aPlayer, effError);
-        if (targetPrice > aPlayer->grainPrice * 1.15f ||
-            targetPrice < aPlayer->grainPrice * 0.85f)
+        if (targetPrice > aPlayer->grainPrice * (1.0f + CPU_GRAIN_REPRICE_BAND) ||
+            targetPrice < aPlayer->grainPrice * (1.0f - CPU_GRAIN_REPRICE_BAND))
         {
             aPlayer->grainPrice = targetPrice;
             GameLog("  Repriced grain to %.4f\n", targetPrice);
@@ -660,7 +668,8 @@ static int ComputeGunsPercent(Player *aPlayer)
     }
     float avgDiplomacy = (livingCount > 0)
                        ? aggregateDiplomacy / livingCount : 0.0f;
-    int gunsPct = 35 - static_cast<int>(avgDiplomacy * 25.0f);
+    int gunsPct = CPU_GUNS_BASE_PCT
+                  - static_cast<int>(avgDiplomacy * CPU_GUNS_DIPLOMACY_SCALE);
 
     /* Power disparity pushes toward guns. */
     float myPower = ComputePlayerPower(aPlayer);
@@ -672,17 +681,10 @@ static int ComputeGunsPercent(Player *aPlayer)
         float ratio = ComputePlayerPower(&playerList[i]) / myPower;
         if (ratio - 1.0f > maxEnvy) maxEnvy = ratio - 1.0f;
     }
-    gunsPct += static_cast<int>(maxEnvy * 15.0f);
-
-    /* Anti-leader boost. */
-    int leaderIdx = FindLeaderIdx();
-    if (leaderIdx >= 0 && leaderIdx != pi)
-    {
-        float leaderPower = ComputePlayerPower(&playerList[leaderIdx]);
-        float avgPow = ComputeAverageSurvivorPower();
-        if (leaderPower > avgPow * CPU_LEADER_POWER_MULT)
-            gunsPct += static_cast<int>(CPU_LEADER_GUNS_BOOST);
-    }
+    /* Quadratic envy scaling: small gaps add little, large gaps
+     * add a lot.  maxEnvy=0.5 → +3.75%, maxEnvy=1.0 → +15%,
+     * maxEnvy=2.0 → +60% (but clamped to 80% total). */
+    gunsPct += static_cast<int>(maxEnvy * maxEnvy * CPU_GUNS_ENVY_SCALE);
 
     if (gunsPct < 20) gunsPct = 20;
     if (gunsPct > 80) gunsPct = 80;
@@ -1227,7 +1229,7 @@ void Machiavelli::manageGrainTrade(Player *aPlayer)
                 continue;
 
             /* Buy grain priced below 2x base price and relist higher. */
-            if (seller->grainPrice < GRAIN_PRICE_BASE * 2.0f)
+            if (seller->grainPrice < GRAIN_PRICE_BASE * CPU_GRAIN_MAX_BUY_MULT)
             {
                 /* Spend up to 20% of treasury on arbitrage. */
                 int budget = aPlayer->treasury / 5;

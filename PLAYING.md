@@ -227,7 +227,7 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 - **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies. A garrison floor keeps 25% of the army as defense. Exception: CPUs can go all-in against a nemesis (maximum hostility, major power imbalance) when backed by allies.
 - **Defensive turtling**: When outmatched 3:1+ with fewer than 50 soldiers, CPUs skip attacks entirely and focus on rebuilding.
 - **Theory of mind**: Before attacking, smarter CPUs simulate the diplomatic consequences — who would be angered, who would approve, and how likely retaliation would be. Betraying an ally is viewed far more negatively by observers than attacking an enemy.
-- **Alliance solidarity**: When an ally attacks someone, CPUs side with whichever player they prefer. If you like your ally more than the target, your view of the target drops. If you like the target more, no effect. This creates realistic alliance dynamics where strong alliances pull CPUs into conflicts.
+- **Alliance solidarity**: When someone attacks, observers side with whichever player they prefer. If you prefer the attacker, your view of the target drops. If you prefer the target, your view of the attacker drops — aggressors are punished, not victims. Attackers also suffer a self-penalty to their own diplomacy toward the target.
 - **Vulnerability detection**: CPUs detect when a player has recently lost soldiers or has zero defenders, and prioritize attacking them with full force.
 - **Barbarian expansion**: CPUs prioritize conquering barbarian lands in the early game when it's free growth with no diplomatic consequences.
 

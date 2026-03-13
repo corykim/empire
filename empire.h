@@ -246,6 +246,8 @@ extern int treatyYears;
 extern int marketGrainHistory[3];  /* Rolling 3-year market grain inventory */
 extern bool omniscient;
 extern bool fastMode;
+extern bool logging;
+extern const char *logFileName;
 
 
 /*------------------------------------------------------------------------------

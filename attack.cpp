@@ -20,6 +20,7 @@
 /* Local includes. */
 #include "empire.h"
 #include "economy.h"
+#include "diplomacy.h"
 #include "cpu_strategy.h"
 #include "ui.h"
 
@@ -438,11 +439,10 @@ static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
     {
         float avgSoldiers = ComputeAverageSoldierCount();
 
-        /* Scale attack ratio: full 25% when avg army is 100+, drops to
-         * 10% when avg army is 20 (early game / everyone is weak). */
-        float scaledRatio = CPU_MIN_ATTACK_RATIO;
-        if (avgSoldiers < 100.0f)
-            scaledRatio *= (0.4f + 0.6f * avgSoldiers / 100.0f);
+        /* Scale attack ratio continuously: full 25% when avg army is
+         * 100+, drops smoothly toward 10% as armies shrink. */
+        float scaledRatio = CPU_MIN_ATTACK_RATIO
+                            * (0.4f + 0.6f * MIN(avgSoldiers / 100.0f, 1.0f));
 
         float targetPower = ComputePlayerPower(aTargetPlayer);
         int estimatedMilitary = static_cast<int>(targetPower * 0.5f);
