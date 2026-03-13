@@ -85,7 +85,7 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - **Init**: Random values in `[-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]` (±0.25)
 - **Decay**: Asymmetric based on power. Positive scores toward powerful players decay FASTER (rate × power ratio, up to 40%). Negative scores toward powerful players decay SLOWER (suppressed by 1/ratio², down to 5%). Normal 10% for equal-power relationships.
 - **Ally threat**: When a player exceeds 1.5× an observer's power, the observer's allies generate a preemptive hostility drift: `-friendshipCB × threat(A→B) / 5` per turn (capped at -0.20). "A could crush my ally B."
-- **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years), dampened by envy
+- **Peace bonus**: +0.01 per peaceful turn (skipped during treaty years), dampened quadratically by envy
 - **Direct attack**: Penalty proportional to land taken: `(landPct / 0.20) × 4.0`, capped at 4.0, amplified by envy. Tracked via `Player::landTakenFrom[]`.
 - **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it. Positive shifts dampened by envy, negative shifts amplified.
 - **Alliance solidarity**: Iterative convergence based on `preference = C→attacker - C→target`. If positive: target penalized (pile on). If negative: attacker penalized (punish aggressor). Scale halves each pass (0.3, 0.15, 0.075...) until shifts < 0.01. Victims are protected, aggressors are punished.
@@ -99,11 +99,11 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 **Key helpers:**
 - `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks
 - `PredictThirdPartyShift(observer, target, attacker)` — used by both `UpdateDiplomacyAfterTurn` and `SimulateAttackOutcome`
-- `ComputePlayerPower(player)` — composite score (revenue/50 + soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000). Revenue is the dominant term.
+- `ComputePlayerPower(player)` — composite score using anticipated revenue (`ComputeExpectedRevenue` at current taxes, weather-averaged) / 50 + soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000. Detects economic threats immediately when investments are built.
 - `ComputeRetaliationReserve(player)` — net threat from scores × soldiers, reduced by allies
 - `ComputeDesiredTroopStrength(player)` — reserve + 1.5× worst enemy's soldiers
 - `SimulateAttackOutcome(attacker, targetIdx)` — predicts diplomatic fallout and retaliation risk
-- `ComputeAlliedStrength(attacker, targetIdx)` — total soldiers of players allied against target
+- `ComputeAlliedStrength(attacker, targetIdx)` — soldiers weighted by diplomacy magnitude (hostility toward target × friendship with attacker / CLAMP²)
 - `ComputeVulnerability(targetIdx)` — scores recent losses, zero soldiers, low absolute count
 - `ComputeExpectedRevenue(player, salesTax, incomeTax)` — deterministic revenue prediction
 - `OptimizeTaxRates(player)` — brute-force 756 combinations for optimal sales/income rates

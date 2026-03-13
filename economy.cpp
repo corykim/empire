@@ -215,33 +215,32 @@ int ComputeLandSustainabilityFloor(Player *aPlayer)
 
 float ComputeMarketplaceROI(Player *aPlayer)
 {
+    /* Evaluate marketplace ROI at salesTax=0 (its optimal environment).
+     * This captures the true value: if we buy marketplaces, the tax
+     * optimizer will lower sales tax, boosting all marketplace revenue. */
     int expRand = 36;
     int perUnit = (MKT_REV_MULT * (aPlayer->merchantCount + expRand)
-                   / (aPlayer->salesTax + 1)) + MKT_REV_ADD;
+                   / (0 + 1)) + MKT_REV_ADD;  /* salesTax=0 */
     int count = aPlayer->marketplaceCount;
     float revNow = (count > 0) ? pow(count * perUnit, REV_EXP_INVESTMENT) : 0.0f;
     float revNext = pow((count + 1) * perUnit, REV_EXP_INVESTMENT);
-    /* No explicit compounding bonus needed — at 0% sales tax, marketplace
-     * ROI naturally exceeds mill ROI, driving the post-opening transition.
-     * Mills dominate the opening phase (forced by allocation bias), then
-     * marketplaces take over as the ROI comparison dictates. */
     return (revNext - revNow) / static_cast<float>(COST_MARKETPLACE);
 }
 
 
 float ComputeMillROI(Player *aPlayer)
 {
+    /* Evaluate mill ROI at incomeTax=0 (its optimal environment).
+     * Symmetric with marketplace ROI — each investment evaluated at
+     * the tax rate that maximizes its returns. */
     int expRand = 602;
     int perUnit = static_cast<int>(
         MILL_REV_MULT * static_cast<float>(aPlayer->serfCount + expRand)
-        / static_cast<float>(aPlayer->incomeTax + 1))
+        / static_cast<float>(0 + 1))  /* incomeTax=0 */
         + MILL_REV_ADD;
     int count = aPlayer->grainMillCount;
     float revNow = (count > 0) ? pow(count * perUnit, REV_EXP_INVESTMENT) : 0.0f;
     float revNext = pow((count + 1) * perUnit, REV_EXP_INVESTMENT);
-    /* No compounding bonus — mill revenue scales with serfs (slow growth)
-     * and has sqrt-like diminishing returns.  Mills don't attract more
-     * serfs the way marketplaces attract merchants. */
     return (revNext - revNow) / static_cast<float>(COST_GRAIN_MILL);
 }
 

@@ -83,7 +83,7 @@ constexpr int   MAX_RAT_PERCENT     = 30;     /* Max % of grain eaten by rats */
 constexpr float GRAIN_MARKUP        = 0.10f;  /* Marketplace markup on grain purchases */
 constexpr float GRAIN_WITHDRAW_FEE  = 0.15f;  /* Penalty to withdraw grain from market */
 constexpr float GRAIN_PRICE_BASE    = 0.50f;  /* CPU base grain price per bushel */
-constexpr float GRAIN_PRICE_MAX     = 5.0f;   /* Max price humans can list grain at */
+constexpr float GRAIN_PRICE_MAX     = 10.0f;  /* Max price humans can list grain at */
 constexpr float LAND_SELL_PRICE     = 5.0f;   /* Currency per acre when selling to barbarians */
 constexpr float LAND_MAX_SELL_PCT   = 0.95f;  /* Max fraction of land that can be sold */
 

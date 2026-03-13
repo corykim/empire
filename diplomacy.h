@@ -21,7 +21,7 @@
  */
 
 constexpr float DIPLOMACY_INIT_RANGE       = 0.05f;
-constexpr float DIPLOMACY_PEACE_BONUS      = 0.03f;
+constexpr float DIPLOMACY_PEACE_BONUS      = 0.01f;
 constexpr float DIPLOMACY_ATTACKED_ME      = -1.0f;
 constexpr float DIPLOMACY_DECAY_RATE       = 0.10f;
 constexpr float DIPLOMACY_THIRD_PARTY_SCALE = 1.0f;

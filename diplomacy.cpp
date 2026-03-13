@@ -65,74 +65,71 @@ void InitDiplomacy()
 
 void DecayDiplomacy(Player *aPlayer)
 {
+    /* Update the CALLING PLAYER's scores toward everyone else.
+     * This ensures every CPU's scores toward ALL players (including
+     * the human) are updated each turn, not just once per year. */
+    if (aPlayer->human)
+        return;  /* Human diplomacy is implicit. */
+
     int pi = aPlayer - playerList;
-    float targetPower = ComputePlayerPower(aPlayer);
+    float myPower = ComputePlayerPower(aPlayer);
     int order[COUNTRY_COUNT];
     ShuffleIndices(order);
 
     for (int k = 0; k < COUNTRY_COUNT; k++)
     {
-        int i = order[k];
-        if (i == pi || playerList[i].dead || playerList[i].human)
+        int j = order[k];
+        if (j == pi || playerList[j].dead)
             continue;
 
         /* Asymmetric decay based on power disparity.
+         * ratio = their power / my power.
          *
-         * Negative scores (hostility) toward a powerful player:
-         *   SUPPRESS decay — hostility toward a threat shouldn't fade.
-         *   At 2× power: decay 2.5%, at 3×: nearly zero.
-         *
-         * Positive scores (friendliness) toward a powerful player:
-         *   AMPLIFY decay — friendliness toward a dominant player should
-         *   erode as envy grows.  "Why should I like someone who could
-         *   crush me?"  At 2× power: decay 20%, at 3×: 30%. */
+         * Negative scores toward a powerful player: suppress decay.
+         * Positive scores toward a powerful player: amplify decay. */
+        float theirPower = ComputePlayerPower(&playerList[j]);
+        float ratio = theirPower / myPower;
         float decayRate = DIPLOMACY_DECAY_RATE;
-        float observerPower = ComputePlayerPower(&playerList[i]);
-        float ratio = targetPower / observerPower;
 
         if (ratio > CPU_LEADER_POWER_MULT)
         {
-            if (playerList[i].diplomacy[pi] < 0.0f)
+            if (aPlayer->diplomacy[j] < 0.0f)
             {
-                /* Suppress: hostility persists. */
                 float suppress = 1.0f / (ratio * ratio);
                 if (suppress < 0.05f) suppress = 0.05f;
                 decayRate *= suppress;
             }
             else
             {
-                /* Amplify: friendliness erodes faster. */
                 decayRate *= ratio;
                 if (decayRate > 0.40f) decayRate = 0.40f;
             }
         }
 
-        /* Ally threat: if this player (A) is much stronger than someone
-         * the observer (C) cares about (B), C becomes wary of A.
-         *   drift = sum over allies B: friendshipCB × threat(A→B)
-         *   threat(A→B) = max(0, powerA/powerB - 1) / 5
-         * This creates preemptive hostility: "A could crush my ally." */
+        /* Ally threat: if player j is much stronger than someone I
+         * care about (ally b), I become wary of j.
+         *   drift = sum over allies b: friendship(me→b) × threat(j→b) / 5 */
         if (ratio > CPU_LEADER_POWER_MULT)
         {
             float allyThreatDrift = 0.0f;
             for (int b = 0; b < COUNTRY_COUNT; b++)
             {
-                if (b == pi || b == i || playerList[b].dead)
+                if (b == j || b == pi || playerList[b].dead)
                     continue;
-                float friendshipCB = playerList[i].diplomacy[b];
-                if (friendshipCB <= 0.0f)
+                float myFriendship = aPlayer->diplomacy[b];
+                if (myFriendship <= 0.0f)
                     continue;
                 float powerB = ComputePlayerPower(&playerList[b]);
-                float threatAB = (targetPower / powerB) - 1.0f;
-                if (threatAB > 0.0f)
-                    allyThreatDrift -= friendshipCB * threatAB / 5.0f;
+                float threat = (theirPower / powerB) - 1.0f;
+                if (threat > 0.0f)
+                    allyThreatDrift -= myFriendship * threat / 5.0f;
             }
             if (allyThreatDrift < -0.20f) allyThreatDrift = -0.20f;
-            playerList[i].diplomacy[pi] = ClampDiplomacy(
-                playerList[i].diplomacy[pi] + allyThreatDrift);
+            aPlayer->diplomacy[j] = ClampDiplomacy(
+                aPlayer->diplomacy[j] + allyThreatDrift);
         }
 
-        playerList[i].diplomacy[pi] *= (1.0f - decayRate);
+        aPlayer->diplomacy[j] *= (1.0f - decayRate);
     }
 }
 
@@ -166,7 +163,7 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                 if (envyFactor < 1.0f) envyFactor = 1.0f;
 
                 float old = playerList[i].diplomacy[pi];
-                float bonus = DIPLOMACY_PEACE_BONUS / envyFactor;
+                float bonus = DIPLOMACY_PEACE_BONUS / (envyFactor * envyFactor);
                 playerList[i].diplomacy[pi] = ClampDiplomacy(
                     playerList[i].diplomacy[pi] + bonus);
                 if (playerList[i].diplomacy[pi] != old)
@@ -230,12 +227,15 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
                     }
                     else
                     {
-                        /* Third-party shift — pass 0 only. */
+                        /* Third-party shift — pass 0 only.
+                         * Positive shifts dampened quadratically by envy:
+                         * trust erodes fast toward the powerful.
+                         * Negative shifts amplified linearly. */
                         if (pass == 0)
                         {
                             float shift = PredictThirdPartyShift(i, t, pi);
                             if (shift > 0.0f)
-                                shift /= envyFactor;
+                                shift /= (envyFactor * envyFactor);
                             else
                                 shift *= envyFactor;
                             playerList[i].diplomacy[pi] += shift;
@@ -451,19 +451,15 @@ int ComputeRetaliationReserve(Player *aPlayer)
 
 float ComputePlayerPower(Player *aPlayer)
 {
-    /* Revenue is the strongest indicator of long-term dominance.
-     * A player generating 10,000/yr can buy anything — soldiers,
-     * infrastructure, grain.  Weight it heavily (revenue / 50). */
-    int totalRevenue = aPlayer->marketplaceRevenue
-                     + aPlayer->grainMillRevenue
-                     + aPlayer->foundryRevenue
-                     + aPlayer->shipyardRevenue
-                     + aPlayer->salesTaxRevenue
-                     + aPlayer->incomeTaxRevenue
-                     + aPlayer->customsTaxRevenue;
-    if (totalRevenue < 0) totalRevenue = 0;
+    /* Use anticipated revenue (from current infrastructure + optimal taxes)
+     * rather than last year's actual revenue.  This detects economic threats
+     * immediately when investments are built, not a year later.
+     * ComputeExpectedRevenue averages weather at 3.5 for shipyards. */
+    int anticipatedRevenue = ComputeExpectedRevenue(
+        aPlayer, aPlayer->salesTax, aPlayer->incomeTax);
+    if (anticipatedRevenue < 0) anticipatedRevenue = 0;
 
-    float power = static_cast<float>(totalRevenue) / 50.0f
+    float power = static_cast<float>(anticipatedRevenue) / 50.0f
                   + static_cast<float>(aPlayer->soldierCount)
                   + static_cast<float>(aPlayer->land) / 50.0f
                   + static_cast<float>(aPlayer->treasury) / 500.0f
@@ -559,21 +555,25 @@ float SimulateAttackOutcome(Player *attacker, int targetIdx)
 int ComputeAlliedStrength(Player *attacker, int targetIdx)
 {
     int ai = attacker - playerList;
-    int alliedSoldiers = 0;
+    float alliedSoldiers = 0.0f;
 
     for (int i = 0; i < COUNTRY_COUNT; i++)
     {
         if (i == ai || i == targetIdx || playerList[i].dead)
             continue;
 
-        /* Allied = dislikes the target AND likes the attacker. */
-        if (playerList[i].diplomacy[targetIdx] < 0.0f &&
-            playerList[i].diplomacy[ai] > 0.0f)
-        {
-            alliedSoldiers += playerList[i].soldierCount;
-        }
+        /* Weight by diplomacy magnitude: a strong ally who hates the
+         * target contributes fully; a lukewarm ally contributes less.
+         * hostility = how much they dislike the target (0 to CLAMP)
+         * friendship = how much they like us (0 to CLAMP)
+         * contribution = soldiers × hostility × friendship / CLAMP² */
+        float hostility = MAX(0.0f, -playerList[i].diplomacy[targetIdx]);
+        float friendship = MAX(0.0f, playerList[i].diplomacy[ai]);
+        alliedSoldiers += playerList[i].soldierCount
+                          * hostility * friendship
+                          / (DIPLOMACY_CLAMP * DIPLOMACY_CLAMP);
     }
-    return alliedSoldiers;
+    return static_cast<int>(alliedSoldiers);
 }
 
 

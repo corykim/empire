@@ -271,10 +271,10 @@ void CPUStrategy::manageTaxes(Player *aPlayer)
     int optIncome = aPlayer->incomeTax;
 
     /* Blend optimal toward previous rates based on difficulty.
-     * Low difficulty (err=50): 100% previous rates (never changes).
-     * High difficulty (err=5): 90% optimal, 10% inertia. */
+     * Low difficulty (err=50): 0% adaptation (never changes).
+     * High difficulty (err=5): 100% adaptation (immediate optimal). */
     int effError = ComputeErrorPct(aPlayer->cpuDifficulty);
-    int adaptPct = 100 - 2 * effError;
+    int adaptPct = 100 - effError;
     if (adaptPct < 0) adaptPct = 0;
     aPlayer->salesTax = (optSales * adaptPct + prevSales * (100 - adaptPct)) / 100;
     aPlayer->incomeTax = (optIncome * adaptPct + prevIncome * (100 - adaptPct)) / 100;
