@@ -240,6 +240,9 @@ int main(int argc, char *argv[])
             turnOrder[j] = tmp;
         }
 
+        /* Log the diplomacy table at the start of each year. */
+        LogAllDiplomacy("Start of Year");
+
         /* Go through each player. */
         for (i = 0; i < COUNTRY_COUNT; i++)
         {
@@ -965,7 +968,7 @@ static void CPUGrainPhase(Player *aPlayer)
 
     /* Discount reserve if cheap grain is on the market. */
     int marketGrain = 0;
-    float cheapestPrice = 999.0f;
+    float cheapestPrice = GRAIN_PRICE_MAX + 1.0f;
     for (int i = 0; i < COUNTRY_COUNT; i++)
     {
         Player *p = &playerList[i];
@@ -976,55 +979,91 @@ static void CPUGrainPhase(Player *aPlayer)
                 cheapestPrice = p->grainPrice;
         }
     }
-    if (marketGrain > 0 && cheapestPrice < 999.0f)
+    if (marketGrain > 0 && cheapestPrice <= GRAIN_PRICE_MAX)
     {
         int canBuy = static_cast<int>(
-            (aPlayer->treasury * 0.5f * (1.0f - GRAIN_MARKUP)) / cheapestPrice);
+            (aPlayer->treasury * CPU_GRAIN_TREASURY_PCT * (1.0f - GRAIN_MARKUP)) / cheapestPrice);
         if (canBuy > marketGrain) canBuy = marketGrain;
         safeReserve -= canBuy;
-        if (safeReserve < totalNeed / 4) safeReserve = totalNeed / 4;
+        if (safeReserve < totalNeed) safeReserve = totalNeed;
     }
 
     GameLog("  Safe grain reserve: %d (totalNeed=%d, worstHarvest=%d, "
             "marketDiscount=%d)\n",
             safeReserve, totalNeed, worstHarvest,
             marketGrain > 0 ? static_cast<int>(
-                (aPlayer->treasury * 0.5f * (1.0f - GRAIN_MARKUP))
+                (aPlayer->treasury * CPU_GRAIN_TREASURY_PCT * (1.0f - GRAIN_MARKUP))
                 / cheapestPrice) : 0);
 
-    /* Trade grain and land via the strategy. */
+    /* List surplus grain for sale BEFORE feeding, but only when:
+     * 1. Market price is attractive (above base price)
+     * 2. After listing, remaining grain covers BOTH this year's
+     *    overfeed (immigration threshold) AND a prudent reserve for
+     *    next year (totalNeed, enough to survive a bad year).
+     * This mirrors the human's grain management: sell high, keep reserves. */
+    {
+        int effErr = ComputeErrorPct(aPlayer->cpuDifficulty);
+        float price = cpuStrategies[aPlayer->strategyIndex]
+                      ->ComputeGrainTargetPrice(aPlayer, effErr);
+
+        if (price >= GRAIN_PRICE_BASE)
+        {
+            int feedBudget = static_cast<int>(
+                aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT) + 1
+                + aPlayer->armyGrainNeed;
+            int reserveBudget = totalNeed;  /* full year's need as reserve */
+            int mustKeep = feedBudget + reserveBudget;
+            int surplus = aPlayer->grain - mustKeep;
+
+            if (surplus > CPU_MIN_GRAIN_SURPLUS)
+            {
+                int sellAmount = surplus * (100 - effErr) / 100;
+                if (sellAmount > CPU_MIN_GRAIN_SURPLUS / 5)
+                {
+                    ListGrainForSale(aPlayer, sellAmount, price);
+                    GameLog("  Listed %d grain at %.2f (surplus %d, "
+                            "keeping %d for feed+reserve)\n",
+                            sellAmount, price, surplus, mustKeep);
+                }
+            }
+        }
+    }
+
+    /* Buy/withdraw/emergency grain trading. */
     cpuStrategies[aPlayer->strategyIndex]->manageGrainTrade(aPlayer);
 
-    /* Buy grain to enable immigration if we have treasury and market grain.
-     * Immigration is the #1 growth driver — spend aggressively to enable it. */
+    /* Buy grain to enable immigration — but only at reasonable prices.
+     * Don't enrich the dominant player by buying at 5.0/bushel. */
     int immigrationTarget = static_cast<int>(aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT)
                             + aPlayer->armyGrainNeed;
     if (aPlayer->grain < immigrationTarget && aPlayer->treasury > COST_SOLDIER)
     {
         int deficit = immigrationTarget - aPlayer->grain;
-        /* Find cheapest seller. */
         Player *cheapest = nullptr;
         for (int j = 0; j < COUNTRY_COUNT; j++) {
             Player *p = &playerList[j];
-            if (p != aPlayer && !p->dead && p->grainForSale > 0)
+            if (p != aPlayer && !p->dead && p->grainForSale > 0
+                && p->grainPrice <= GRAIN_PRICE_BASE * 2.0f)
                 if (!cheapest || p->grainPrice < cheapest->grainPrice)
                     cheapest = p;
         }
         if (cheapest) {
-            /* Spend up to 50% of treasury on grain for immigration. */
-            int canAfford = static_cast<int>((aPlayer->treasury * 0.5f * (1.0f - GRAIN_MARKUP)) / cheapest->grainPrice);
+            int canAfford = static_cast<int>((aPlayer->treasury * CPU_GRAIN_TREASURY_PCT * (1.0f - GRAIN_MARKUP)) / cheapest->grainPrice);
             int toBuy = MIN(deficit, MIN(canAfford, cheapest->grainForSale));
             if (toBuy > 0) {
                 TradeGrain(aPlayer, cheapest, toBuy);
-                GameLog("  Bought %d grain for immigration (treasury: %d)\n", toBuy, aPlayer->treasury);
+                GameLog("  Bought %d grain for immigration at %.2f (treasury: %d)\n",
+                        toBuy, cheapest->grainPrice, aPlayer->treasury);
             }
         }
     }
 
     /* CPU feeds army.  Higher difficulties overfeed for army efficiency,
-     * but only if grain exceeds the safe reserve after feeding. */
+     * scaling from 100% at difficulty 2 to 150% at difficulty 4.
+     * The 50% range maps to (IMMIGRATION_FEED_MULT - 1.0) × 100. */
     int armyOverfeedPct = 100 + static_cast<int>(
-        25.0f * MAX(0.0f, aPlayer->cpuDifficulty - 2.0f));
+        ((IMMIGRATION_FEED_MULT - 1.0f) * 100.0f / 2.0f)
+        * MAX(0.0f, aPlayer->cpuDifficulty - 2.0f));
     int armyFeedTarget = aPlayer->armyGrainNeed;
     if (armyOverfeedPct > 100)
     {
@@ -1036,15 +1075,14 @@ static void CPUGrainPhase(Player *aPlayer)
     aPlayer->grain -= aPlayer->armyGrainFeed;
 
     /*
-     * CPU feeds people above the required amount when surplus allows,
-     * to attract immigrants.
+     * CPU feeds people above the required amount to attract immigrants.
      *
-     * Sustainability constraint: after feeding, remaining grain (with 10%
-     * rat loss) plus next year's harvest must be enough to feed at the
-     * same level again.  This prevents the grain death spiral.
-     *
-     *   (grain - peopleFeed) * 0.9 + harvest >= armyNeed + peopleFeed
-     *   peopleFeed <= (grain * 0.9 + harvest - armyNeed) / 1.9
+     * Three constraints:
+     * 1. Sustainability: after feeding, remaining grain (with 10% rats)
+     *    plus WORST-CASE harvest must cover next year's feeding.
+     * 2. Prudence: overfeed above 150% only when grain remaining after
+     *    feeding >= 100% of annual need.  No hard cap — just smart.
+     * 3. Floor: always feed at least 100% of need.
      */
     int optimalOverfeed = CPU_OVERFEED_PCT;
     int errorRange = ComputeErrorPct(aPlayer->cpuDifficulty);
@@ -1054,31 +1092,46 @@ static void CPUGrainPhase(Player *aPlayer)
         overfeedPct = 100;
     int desiredFeed = aPlayer->peopleGrainNeed * overfeedPct / 100;
 
-    /* Estimate next year's harvest: discount this year's harvest by a
-     * risk factor.  Mills insure against bad weather, so mill-heavy
-     * CPUs can afford to overfeed more aggressively.
-     *   Base risk: expect 75% of this year's harvest
-     *   Mill bonus: +3% per mill (up to +18%), reflecting weather insurance */
-    float millInsurance = 0.03f * static_cast<float>(
-        MIN(aPlayer->grainMillCount, 6));
-    float harvestRisk = 0.75f + millInsurance;
-    int expectedHarvest = static_cast<int>(
-        aPlayer->grainHarvest * harvestRisk);
-
+    /* Sustainability clamp using worst-case harvest (weather=1).
+     * Formula: (grain × (1 - ratLoss) + worstHarvest - armyNeed)
+     *          / (1 + (1 - ratLoss))
+     * Derived from: remaining × (1 - rats) + harvest >= feed + armyNeed */
+    int worstHarvestEst = ComputeWorstCaseHarvest(aPlayer);
+    float ratSurvival = 1.0f - CPU_EXPECTED_RAT_LOSS;
     int sustainableFeed = static_cast<int>(
-        (aPlayer->grain * 0.9f
-         + static_cast<float>(expectedHarvest)
+        (aPlayer->grain * ratSurvival
+         + static_cast<float>(worstHarvestEst)
          - static_cast<float>(aPlayer->armyGrainNeed))
-        / 1.9f);
+        / (1.0f + ratSurvival));
     if (sustainableFeed < aPlayer->peopleGrainNeed)
         sustainableFeed = aPlayer->peopleGrainNeed;
 
     if (desiredFeed > sustainableFeed)
     {
-        GameLog("  Sustainability clamp: %d → %d (grain=%d harvest=%d)\n",
+        GameLog("  Sustainability clamp: %d → %d (grain=%d worstHarvest=%d)\n",
                 desiredFeed, sustainableFeed, aPlayer->grain,
-                aPlayer->grainHarvest);
+                worstHarvestEst);
         desiredFeed = sustainableFeed;
+    }
+
+    /* Prudence: only overfeed above the immigration threshold when
+     * grain after feeding still covers a full year's need (totalNeed).
+     * immigrationThreshold = peopleNeed × IMMIGRATION_FEED_MULT.
+     * This mirrors the human strategy of keeping annual reserves intact. */
+    int immigrationFeed = static_cast<int>(
+        aPlayer->peopleGrainNeed * IMMIGRATION_FEED_MULT) + 1;
+    if (desiredFeed > immigrationFeed)
+    {
+        int grainAfter = aPlayer->grain - desiredFeed;
+        if (grainAfter < totalNeed)
+        {
+            desiredFeed = MAX(immigrationFeed,
+                              aPlayer->grain - totalNeed);
+            if (desiredFeed < aPlayer->peopleGrainNeed)
+                desiredFeed = aPlayer->peopleGrainNeed;
+            GameLog("  Prudence clamp: capped at %d (reserve %d < need %d)\n",
+                    desiredFeed, aPlayer->grain - desiredFeed, totalNeed);
+        }
     }
 
     aPlayer->peopleGrainFeed = MIN(desiredFeed, aPlayer->grain);
@@ -1086,9 +1139,13 @@ static void CPUGrainPhase(Player *aPlayer)
 
     GameLog("  Feed army: %d (need %d)  Feed people: %d (need %d, %d%%)\n",
             aPlayer->armyGrainFeed, aPlayer->armyGrainNeed,
-            aPlayer->peopleGrainFeed, aPlayer->peopleGrainNeed, overfeedPct);
+            aPlayer->peopleGrainFeed, aPlayer->peopleGrainNeed,
+            aPlayer->peopleGrainNeed > 0
+                ? aPlayer->peopleGrainFeed * 100 / aPlayer->peopleGrainNeed
+                : 100);
     GameLog("  Grain remaining: %d (safe reserve: %d)\n",
             aPlayer->grain, safeReserve);
+
 }
 
 

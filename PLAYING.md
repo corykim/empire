@@ -222,7 +222,7 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 
 **How diplomacy affects CPU behavior:**
 - **Target selection**: CPUs are most likely to attack the player with the lowest score. Positive scores make you an unlikely target; negative scores paint a bullseye.
-- **Envy**: Power disparity affects all diplomacy changes. A player much stronger than you gains less from peaceful turns and alliance bonuses, but suffers amplified penalties from attacks. This prevents a dominant player from staying friendly with everyone while conquering them one by one. When any player exceeds 1.5× average power, CPUs suppress inter-CPU attacks and focus on the leader.
+- **Envy**: Power disparity (including revenue) affects all diplomacy. Friendliness toward a dominant player erodes faster; hostility persists longer. CPUs also develop preemptive hostility toward players who threaten their allies — even before an attack happens. When any player exceeds 1.5× average power, CPUs suppress inter-CPU attacks and focus on the leader.
 - **Investment priorities**: CPUs with many enemies prioritize military infrastructure (palaces, foundries, soldiers). CPUs with mostly allies invest in their economy (marketplaces, mills, shipyards). CPUs compare mill vs marketplace ROI and buy whichever is more profitable.
 - **Reserves**: CPUs hold soldiers in reserve proportional to the hostility and military strength of their enemies, offset by the strength of their allies. A garrison floor keeps 25% of the army as defense. Exception: CPUs can go all-in against a nemesis (maximum hostility, major power imbalance) when backed by allies.
 - **Defensive turtling**: When outmatched 3:1+ with fewer than 50 soldiers, CPUs skip attacks entirely and focus on rebuilding.
@@ -243,7 +243,7 @@ Each CPU gets a random opening capital allocation (market/mill/military) at game
 
 CPU players can attack multiple times per turn (up to nobles/4 + 1), re-evaluating targets and reserves after each battle. Attacks require a minimum force (25% of estimated target strength) to prevent wasteful suicide raids. The treaty period varies by difficulty: 5 years at Level 1, down to 1 year at Level 5.
 
-CPUs maintain a grain planting reserve to prevent starvation spirals, and trigger emergency grain recovery (land sales, grain purchases) when critically low.
+CPUs use a sustainability formula for grain management: they won't overfeed beyond what the worst-case harvest can sustain, and won't feed above 150% unless reserves cover a full year's need. They prefer buying grain mills over expensive market grain when the economics favor it, and refuse to buy grain above 2× base price except in true emergencies. CPUs never sell land for emergency grain — instead they attack for land when starving.
 
 All difficulty levels use identical economic formulas. The only difference is decision quality, not rules.
 

@@ -18,6 +18,25 @@
 #include "empire.h"
 
 
+/*
+ * Generate a shuffled array of indices [0..COUNTRY_COUNT-1].
+ * Used to eliminate ordering bias in diplomacy loops.
+ */
+
+static void ShuffleIndices(int *indices)
+{
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+        indices[i] = i;
+    for (int i = COUNTRY_COUNT - 1; i > 0; i--)
+    {
+        int j = RandRange(i + 1) - 1;
+        int tmp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = tmp;
+    }
+}
+
+
 /*------------------------------------------------------------------------------
  *
  * Logging.
@@ -80,20 +99,80 @@ void InitDiplomacy()
 void DecayDiplomacy(Player *aPlayer)
 {
     int pi = aPlayer - playerList;
+    float targetPower = ComputePlayerPower(aPlayer);
+    int order[COUNTRY_COUNT];
+    ShuffleIndices(order);
 
-    for (int i = 0; i < COUNTRY_COUNT; i++)
+    for (int k = 0; k < COUNTRY_COUNT; k++)
     {
+        int i = order[k];
         if (i == pi || playerList[i].dead || playerList[i].human)
             continue;
 
+        /* Asymmetric decay based on power disparity.
+         *
+         * Negative scores (hostility) toward a powerful player:
+         *   SUPPRESS decay — hostility toward a threat shouldn't fade.
+         *   At 2× power: decay 2.5%, at 3×: nearly zero.
+         *
+         * Positive scores (friendliness) toward a powerful player:
+         *   AMPLIFY decay — friendliness toward a dominant player should
+         *   erode as envy grows.  "Why should I like someone who could
+         *   crush me?"  At 2× power: decay 20%, at 3×: 30%. */
+        float decayRate = DIPLOMACY_DECAY_RATE;
+        float observerPower = ComputePlayerPower(&playerList[i]);
+        float ratio = targetPower / observerPower;
+
+        if (ratio > CPU_LEADER_POWER_MULT)
+        {
+            if (playerList[i].diplomacy[pi] < 0.0f)
+            {
+                /* Suppress: hostility persists. */
+                float suppress = 1.0f / (ratio * ratio);
+                if (suppress < 0.05f) suppress = 0.05f;
+                decayRate *= suppress;
+            }
+            else
+            {
+                /* Amplify: friendliness erodes faster. */
+                decayRate *= ratio;
+                if (decayRate > 0.40f) decayRate = 0.40f;
+            }
+        }
+
+        /* Ally threat: if this player (A) is much stronger than someone
+         * the observer (C) cares about (B), C becomes wary of A.
+         *   drift = sum over allies B: friendshipCB × threat(A→B)
+         *   threat(A→B) = max(0, powerA/powerB - 1) / 5
+         * This creates preemptive hostility: "A could crush my ally." */
+        if (ratio > CPU_LEADER_POWER_MULT)
+        {
+            float allyThreatDrift = 0.0f;
+            for (int b = 0; b < COUNTRY_COUNT; b++)
+            {
+                if (b == pi || b == i || playerList[b].dead)
+                    continue;
+                float friendshipCB = playerList[i].diplomacy[b];
+                if (friendshipCB <= 0.0f)
+                    continue;
+                float powerB = ComputePlayerPower(&playerList[b]);
+                float threatAB = (targetPower / powerB) - 1.0f;
+                if (threatAB > 0.0f)
+                    allyThreatDrift -= friendshipCB * threatAB / 5.0f;
+            }
+            if (allyThreatDrift < -0.20f) allyThreatDrift = -0.20f;
+            playerList[i].diplomacy[pi] = ClampDiplomacy(
+                playerList[i].diplomacy[pi] + allyThreatDrift);
+        }
+
         float old = playerList[i].diplomacy[pi];
-        playerList[i].diplomacy[pi] *= (1.0f - DIPLOMACY_DECAY_RATE);
+        playerList[i].diplomacy[pi] *= (1.0f - decayRate);
 
         if (playerList[i].diplomacy[pi] != old)
         {
-            GameLog("  Diplomacy decay: %s→%s %.3f→%.3f\n",
+            GameLog("  Diplomacy decay: %s→%s %.3f→%.3f (rate=%.1f%%)\n",
                     playerList[i].country->name, aPlayer->country->name,
-                    old, playerList[i].diplomacy[pi]);
+                    old, playerList[i].diplomacy[pi], decayRate * 100.0f);
         }
     }
 }
@@ -104,14 +183,18 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
     int pi = aPlayer - playerList;
     float targetPower = ComputePlayerPower(aPlayer);
 
+    int order[COUNTRY_COUNT];
+    ShuffleIndices(order);
+
     if (aPlayer->attackedTargets == 0)
     {
         /* Peaceful turn: all CPUs increase diplomacy toward this player.
          * No peace bonus during treaty years — peace is mandatory. */
         if (year > treatyYears)
         {
-            for (int i = 0; i < COUNTRY_COUNT; i++)
+            for (int k = 0; k < COUNTRY_COUNT; k++)
             {
+                int i = order[k];
                 if (i == pi || playerList[i].dead || playerList[i].human)
                     continue;
 
@@ -138,80 +221,103 @@ void UpdateDiplomacyAfterTurn(Player *aPlayer)
     }
     else
     {
-        /* Aggressive turn: adjust diplomacy based on who was attacked. */
-        for (int i = 0; i < COUNTRY_COUNT; i++)
+        /* Aggressive turn: adjust diplomacy iteratively.
+         * Pass 0: direct reactions (attack penalty, third-party, solidarity).
+         * Pass 1+: solidarity feedback — observers see updated scores from
+         * previous passes and may shift further.  Solidarity strength halves
+         * each pass (0.3, 0.15, 0.075...) so the series converges.
+         * Stop when max shift in a pass drops below 0.01. */
+        float solidarityScale = 0.3f;
+        for (int pass = 0; pass < 10; pass++)
         {
-            if (i == pi || playerList[i].dead || playerList[i].human)
-                continue;
+            ShuffleIndices(order);
+            float maxShift = 0.0f;
 
-            float observerPower = ComputePlayerPower(&playerList[i]);
-            float envyFactor = targetPower / observerPower;
-            if (envyFactor < 1.0f) envyFactor = 1.0f;
-
-            float old = playerList[i].diplomacy[pi];
-
-            /* Check each target that was attacked. */
-            for (int t = 0; t < COUNTRY_COUNT; t++)
+            for (int k = 0; k < COUNTRY_COUNT; k++)
             {
-                if (!(aPlayer->attackedTargets & (1 << t)))
+                int i = order[k];
+                if (i == pi || playerList[i].dead || playerList[i].human)
                     continue;
 
-                if (t == i)
-                {
-                    /* Attacked me — penalty proportional to land taken.
-                     * Amplified by envy: a stronger player attacking you
-                     * feels more threatening. */
-                    int landBefore = playerList[i].land
-                                     + aPlayer->landTakenFrom[i];
-                    float landPct = (landBefore > 0)
-                        ? static_cast<float>(aPlayer->landTakenFrom[i])
-                          / static_cast<float>(landBefore)
-                        : 1.0f;
-                    float penalty = (landPct / 0.20f) * (2.0f * DIPLOMACY_CLAMP);
-                    if (penalty > 2.0f * DIPLOMACY_CLAMP)
-                        penalty = 2.0f * DIPLOMACY_CLAMP;
-                    playerList[i].diplomacy[pi] -= penalty * envyFactor;
-                }
-                else
-                {
-                    /* Third-party shift: positive shifts (attacking my
-                     * enemy) dampened by envy; negative shifts (attacking
-                     * my friend) amplified by envy. */
-                    float shift = PredictThirdPartyShift(i, t, pi);
-                    if (shift > 0.0f)
-                        shift /= envyFactor;
-                    else
-                        shift *= envyFactor;
-                    playerList[i].diplomacy[pi] += shift;
+                float observerPower = ComputePlayerPower(&playerList[i]);
+                float envyFactor = targetPower / observerPower;
+                if (envyFactor < 1.0f) envyFactor = 1.0f;
 
-                    /* Alliance solidarity: A attacks B, C is allied with A.
-                     * C sides with A proportional to how much more C
-                     * likes A than B.  If C likes B more, no effect.
-                     *   solidarity = max(0, C→A - C→B) × 0.3 */
-                    if (playerList[i].diplomacy[pi] > 0.0f)
+                float old = playerList[i].diplomacy[pi];
+
+                /* Check each target that was attacked. */
+                for (int t = 0; t < COUNTRY_COUNT; t++)
+                {
+                    if (!(aPlayer->attackedTargets & (1 << t)))
+                        continue;
+
+                    if (t == i)
                     {
-                        float preference = playerList[i].diplomacy[pi]
-                                           - playerList[i].diplomacy[t];
-                        if (preference > 0.0f)
+                        /* Attacked me — apply on pass 0 only. */
+                        if (pass == 0)
                         {
-                            float solidarity = preference * 0.3f;
-                            playerList[i].diplomacy[t] -= solidarity;
-                            playerList[i].diplomacy[t] = ClampDiplomacy(
-                                playerList[i].diplomacy[t]);
+                            int landBefore = playerList[i].land
+                                             + aPlayer->landTakenFrom[i];
+                            float landPct = (landBefore > 0)
+                                ? static_cast<float>(aPlayer->landTakenFrom[i])
+                                  / static_cast<float>(landBefore)
+                                : 1.0f;
+                            float penalty = (landPct / 0.20f)
+                                            * (2.0f * DIPLOMACY_CLAMP);
+                            if (penalty > 2.0f * DIPLOMACY_CLAMP)
+                                penalty = 2.0f * DIPLOMACY_CLAMP;
+                            playerList[i].diplomacy[pi] -= penalty * envyFactor;
+                        }
+                    }
+                    else
+                    {
+                        /* Third-party shift — pass 0 only. */
+                        if (pass == 0)
+                        {
+                            float shift = PredictThirdPartyShift(i, t, pi);
+                            if (shift > 0.0f)
+                                shift /= envyFactor;
+                            else
+                                shift *= envyFactor;
+                            playerList[i].diplomacy[pi] += shift;
+                        }
+
+                        /* Alliance solidarity — every pass, halving. */
+                        if (playerList[i].diplomacy[pi] > 0.0f)
+                        {
+                            float preference = playerList[i].diplomacy[pi]
+                                               - playerList[i].diplomacy[t];
+                            if (preference > 0.0f)
+                            {
+                                float solidarity = preference * solidarityScale;
+                                playerList[i].diplomacy[t] -= solidarity;
+                                playerList[i].diplomacy[t] = ClampDiplomacy(
+                                    playerList[i].diplomacy[t]);
+                                if (solidarity > maxShift)
+                                    maxShift = solidarity;
+                            }
                         }
                     }
                 }
+
+                playerList[i].diplomacy[pi] = ClampDiplomacy(
+                    playerList[i].diplomacy[pi]);
+                if (pass == 0 && playerList[i].diplomacy[pi] != old)
+                {
+                    GameLog("  Diplomacy attack: %s→%s %.3f→%.3f "
+                            "(envy=%.1f)\n",
+                            playerList[i].country->name,
+                            aPlayer->country->name,
+                            old, playerList[i].diplomacy[pi], envyFactor);
+                }
             }
 
-            playerList[i].diplomacy[pi] = ClampDiplomacy(
-                playerList[i].diplomacy[pi]);
-            if (playerList[i].diplomacy[pi] != old)
+            solidarityScale *= 0.5f;
+            if (maxShift < 0.01f)
             {
-                GameLog("  Diplomacy attack: %s→%s %.3f→%.3f "
-                        "(envy=%.1f)\n",
-                        playerList[i].country->name,
-                        aPlayer->country->name,
-                        old, playerList[i].diplomacy[pi], envyFactor);
+                if (pass > 0)
+                    GameLog("  Diplomacy converged after %d passes\n", pass + 1);
+                break;
             }
         }
     }
@@ -330,7 +436,20 @@ int ComputeRetaliationReserve(Player *aPlayer)
 
 float ComputePlayerPower(Player *aPlayer)
 {
-    float power = static_cast<float>(aPlayer->soldierCount)
+    /* Revenue is the strongest indicator of long-term dominance.
+     * A player generating 10,000/yr can buy anything — soldiers,
+     * infrastructure, grain.  Weight it heavily (revenue / 50). */
+    int totalRevenue = aPlayer->marketplaceRevenue
+                     + aPlayer->grainMillRevenue
+                     + aPlayer->foundryRevenue
+                     + aPlayer->shipyardRevenue
+                     + aPlayer->salesTaxRevenue
+                     + aPlayer->incomeTaxRevenue
+                     + aPlayer->customsTaxRevenue;
+    if (totalRevenue < 0) totalRevenue = 0;
+
+    float power = static_cast<float>(totalRevenue) / 50.0f
+                  + static_cast<float>(aPlayer->soldierCount)
                   + static_cast<float>(aPlayer->land) / 50.0f
                   + static_cast<float>(aPlayer->treasury) / 500.0f
                   + static_cast<float>(aPlayer->merchantCount) / 5.0f
@@ -610,16 +729,28 @@ float ComputeVulnerability(int targetIdx)
 
 float ComputeAverageSurvivorPower()
 {
+    /* Exclude the strongest player from the average so that a dominant
+     * leader's own power doesn't inflate the average and mask the gap.
+     * Without this, a player at 400 with CPUs at 250 averages to 300,
+     * yielding a ratio of only 1.33× — below the 1.5× threshold.
+     * Excluding the leader: avg=250, ratio=1.6× — correctly detected. */
+    int leaderIdx = -1;
+    float leaderPower = 0.0f;
     float total = 0.0f;
     int count = 0;
     for (int i = 0; i < COUNTRY_COUNT; i++)
     {
         if (!playerList[i].dead)
         {
-            total += ComputePlayerPower(&playerList[i]);
+            float p = ComputePlayerPower(&playerList[i]);
+            total += p;
             count++;
+            if (p > leaderPower) { leaderPower = p; leaderIdx = i; }
         }
     }
+    /* Return average of non-leader players. */
+    if (count > 1)
+        return (total - leaderPower) / (count - 1);
     return (count > 0) ? total / count : 1.0f;
 }
 
@@ -817,7 +948,10 @@ PopulationResult ComputePopulation(Player *aPlayer)
     }
 
     /* Army efficiency: 10 = 100%, scales with feeding ratio.
-     * Default to 100% when there's no army to feed. */
+     * When there's no army to feed, carry forward previous efficiency
+     * with a floor of 100%.  This preserves the momentum of good army
+     * management — a player who was overfeeding at 150% keeps that
+     * efficiency for fresh recruits.  Underfed armies get reset to 100%. */
     if (aPlayer->armyGrainNeed > 0)
     {
         aPlayer->armyEfficiency = (10 * aPlayer->armyGrainFeed)
@@ -827,7 +961,7 @@ PopulationResult ComputePopulation(Player *aPlayer)
         else if (aPlayer->armyEfficiency > 15)
             aPlayer->armyEfficiency = 15;
     }
-    else
+    else if (aPlayer->armyEfficiency < 10)
     {
         aPlayer->armyEfficiency = 10;
     }

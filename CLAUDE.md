@@ -82,21 +82,22 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 
 **Diplomacy lifecycle:**
 - **Init**: Random values in `[-DIPLOMACY_INIT_RANGE, +DIPLOMACY_INIT_RANGE]` (±0.25)
-- **Decay**: All CPU scores decay 10% toward zero at the start of each player's turn
+- **Decay**: Asymmetric based on power. Positive scores toward powerful players decay FASTER (rate × power ratio, up to 40%). Negative scores toward powerful players decay SLOWER (suppressed by 1/ratio², down to 5%). Normal 10% for equal-power relationships.
+- **Ally threat**: When a player exceeds 1.5× an observer's power, the observer's allies generate a preemptive hostility drift: `-friendshipCB × threat(A→B) / 5` per turn (capped at -0.20). "A could crush my ally B."
 - **Peace bonus**: +0.03 per peaceful turn (skipped during treaty years), dampened by envy
 - **Direct attack**: Penalty proportional to land taken: `(landPct / 0.20) × 4.0`, capped at 4.0, amplified by envy. Tracked via `Player::landTakenFrom[]`.
 - **Third-party**: `PredictThirdPartyShift()` — attacking someone's enemy raises score; attacking their friend lowers it. Positive shifts dampened by envy, negative shifts amplified.
-- **Alliance solidarity**: When A attacks B and C is allied with A, C's diplomacy toward B decreases proportional to `max(0, C→A - C→B) × 0.3`. If C likes B more than A, no effect. C sides with whichever ally they prefer.
-- **Envy weighting**: All diplomacy changes are weighted by `envyFactor = max(1.0, targetPower / observerPower)`. Power disparity dampens positive shifts and amplifies negative ones.
-- **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`.
+- **Alliance solidarity**: Iterative convergence — when A attacks B and C is allied with A, C's diplomacy toward B decreases proportional to `max(0, C→A - C→B) × scale`. Scale halves each pass (0.3, 0.15, 0.075...) until shifts < 0.01. If C likes B more than A, no effect.
+- **Envy weighting**: All diplomacy changes weighted by `envyFactor = max(1.0, targetPower / observerPower)`. Power disparity dampens positive shifts and amplifies negative ones.
+- **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`. Diplomacy table logged at start of each year.
 
 **Tuning constants** (in `economy.h`):
-`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`, `CPU_AVG_WEATHER`, `CPU_MIN_ATTACK_RATIO`, `CPU_LEADER_POWER_MULT`, `CPU_LEADER_ATTACK_BOOST`, `CPU_LEADER_GUNS_BOOST`, `CPU_TURTLE_POWER_RATIO`, `CPU_OPENING_YEARS`
+`DIPLOMACY_INIT_RANGE`, `DIPLOMACY_PEACE_BONUS`, `DIPLOMACY_DECAY_RATE`, `DIPLOMACY_THIRD_PARTY_SCALE`, `DIPLOMACY_WEAKNESS_SCALE`, `DIPLOMACY_ENVY_SCALE`, `DIPLOMACY_RESERVE_SCALE`, `DIPLOMACY_CLAMP`, `CPU_OVERFEED_PCT`=160, `CPU_AVG_WEATHER`, `CPU_GRAIN_TREASURY_PCT`, `CPU_EXPECTED_RAT_LOSS`, `CPU_MIN_GRAIN_SURPLUS`, `CPU_MIN_ATTACK_RATIO`, `CPU_LEADER_POWER_MULT`, `CPU_LEADER_ATTACK_BOOST`, `CPU_LEADER_GUNS_BOOST`, `CPU_TURTLE_POWER_RATIO`, `CPU_OPENING_YEARS`
 
 **Key helpers:**
 - `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks
 - `PredictThirdPartyShift(observer, target, attacker)` — used by both `UpdateDiplomacyAfterTurn` and `SimulateAttackOutcome`
-- `ComputePlayerPower(player)` — composite score (soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000)
+- `ComputePlayerPower(player)` — composite score (revenue/50 + soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000). Revenue is the dominant term.
 - `ComputeRetaliationReserve(player)` — net threat from scores × soldiers, reduced by allies
 - `ComputeDesiredTroopStrength(player)` — reserve + 1.5× worst enemy's soldiers
 - `SimulateAttackOutcome(attacker, targetIdx)` — predicts diplomatic fallout and retaliation risk
@@ -193,6 +194,7 @@ Additional globals in `empire.h` / `empire.cpp`:
 
 ## User Preferences
 
+- Don't automatically ship (/ship) — wait for explicit user command
 - No hidden CPU bonuses — all economic formulas must be centralized in `economy.h`/`economy.cpp` so CPU and human use identical code paths
 - Fog of war is intentional — don't show enemy soldier counts on attack screen
 - Combat delay: mathematical curves only (`37.5ms * sqrt(smaller_force)`), recalculated each round

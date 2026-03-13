@@ -78,11 +78,13 @@ public:
     int selectTargetByDiplomacy(Player *aPlayer, int *livingIndices,
                               int livingCount, float requireOdds);
 
+    /* Grain pricing — public so CPUGrainPhase can use it for post-feed listing. */
+    float ComputeGrainTargetPrice(Player *aPlayer, int effError);
+
 protected:
     /* Shared helpers available to all derived classes. */
     int   deviate(int optimal, int maxVal);          /* Uses this->errorPct */
     int   deviate(int optimal, int maxVal, int err); /* Uses explicit error */
-    float ComputeGrainTargetPrice(Player *aPlayer, int effError);
     void  cpuInvest(Player *aPlayer);
 };
 

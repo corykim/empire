@@ -160,9 +160,12 @@ constexpr int   CASUALTY_DIV_HIGH     = 5;      /* Kill rate: large armies */
 constexpr int   SACK_THRESHOLD_DIV    = 3;      /* Sack if capture > 1/N of land */
 
 /* CPU behavior tuning (shared across files). */
-constexpr int   CPU_OVERFEED_PCT         = 190;    /* CPU target people overfeed percentage */
+constexpr int   CPU_OVERFEED_PCT         = 160;    /* CPU target people overfeed percentage */
 constexpr int   CPU_MIN_ATTACK_FORCE     = 10;     /* Minimum soldiers to send on attack */
-constexpr float CPU_AVG_WEATHER        = 3.5f;    /* Average weather for sustainability formulas */
+constexpr float CPU_AVG_WEATHER          = 3.5f;   /* Average weather for sustainability formulas */
+constexpr float CPU_GRAIN_TREASURY_PCT   = 0.5f;   /* Max fraction of treasury to spend on grain */
+constexpr float CPU_EXPECTED_RAT_LOSS    = 0.15f;  /* Expected rat loss for sustainability calc */
+constexpr int   CPU_MIN_GRAIN_SURPLUS    = 500;    /* Min surplus grain before listing for sale */
 constexpr float CPU_MIN_ATTACK_RATIO     = 0.25f;  /* Min troops as fraction of est. target strength */
 constexpr float CPU_LEADER_POWER_MULT    = 1.5f;   /* Power ratio to trigger anti-leader mode */
 constexpr float CPU_LEADER_ATTACK_BOOST  = 2.0f;   /* Attack weight multiplier for leader target */
