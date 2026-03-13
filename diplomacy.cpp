@@ -129,6 +129,22 @@ void DecayDiplomacy(Player *aPlayer)
                 aPlayer->diplomacy[j] + allyThreatDrift);
         }
 
+        /* Power suspicion: anyone significantly stronger than me is a
+         * threat regardless of their actions.  Quadratic in the power
+         * gap — small advantages create mild unease, large advantages
+         * create active hostility.  This is the proactive mechanism
+         * that makes CPUs gang up on a dominant player before it's
+         * too late, even if the leader has been peaceful.
+         *   suspicion = -(ratio - 1)² × DIPLOMACY_DECAY_RATE
+         * At 1.5×: -0.025/turn.  At 2×: -0.10/turn.  At 3×: -0.40/turn. */
+        if (ratio > 1.0f)
+        {
+            float gap = ratio - 1.0f;
+            float suspicion = -gap * gap * DIPLOMACY_DECAY_RATE;
+            aPlayer->diplomacy[j] = ClampDiplomacy(
+                aPlayer->diplomacy[j] + suspicion);
+        }
+
         aPlayer->diplomacy[j] *= (1.0f - decayRate);
     }
 }
@@ -443,6 +459,14 @@ int ComputeRetaliationReserve(Player *aPlayer)
 
     if (netThreat < 0.0f) netThreat = 0.0f;
     int reserve = static_cast<int>(netThreat * DIPLOMACY_RESERVE_SCALE);
+
+    /* Cap reserve at 75% of army — always leave at least 25% for offense.
+     * Without this, a dominant player surrounded by enemies gets paralyzed:
+     * the reserve exceeds their army and they can never attack. */
+    int maxReserve = aPlayer->soldierCount * 3 / 4;
+    if (reserve > maxReserve)
+        reserve = maxReserve;
+
     GameLog("  Retaliation reserve: %d soldiers (net threat: %.0f)\n",
             reserve, netThreat);
     return reserve;
@@ -562,16 +586,18 @@ int ComputeAlliedStrength(Player *attacker, int targetIdx)
         if (i == ai || i == targetIdx || playerList[i].dead)
             continue;
 
-        /* Weight by diplomacy magnitude: a strong ally who hates the
-         * target contributes fully; a lukewarm ally contributes less.
-         * hostility = how much they dislike the target (0 to CLAMP)
-         * friendship = how much they like us (0 to CLAMP)
-         * contribution = soldiers × hostility × friendship / CLAMP² */
+        /* Weight by diplomacy magnitude, squared for non-linear scaling.
+         * Strong alliances/enmities count troops disproportionately more:
+         *   hostility at 2.0 counts 4× more than at 1.0
+         *   friendship at 2.0 counts 4× more than at 1.0
+         * Lukewarm relationships (±0.5) contribute almost nothing. */
         float hostility = MAX(0.0f, -playerList[i].diplomacy[targetIdx]);
         float friendship = MAX(0.0f, playerList[i].diplomacy[ai]);
         alliedSoldiers += playerList[i].soldierCount
-                          * hostility * friendship
-                          / (DIPLOMACY_CLAMP * DIPLOMACY_CLAMP);
+                          * (hostility * hostility)
+                          * (friendship * friendship)
+                          / (DIPLOMACY_CLAMP * DIPLOMACY_CLAMP
+                             * DIPLOMACY_CLAMP * DIPLOMACY_CLAMP);
     }
     return static_cast<int>(alliedSoldiers);
 }

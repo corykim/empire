@@ -41,6 +41,7 @@ static void WithdrawGrainScreen(Player *aPlayer);
 
 static void RepriceGrainScreen(Player *aPlayer);
 
+static int  ParseFeedInput(const char *input, int need, bool isPeople);
 static void FeedCountry(Player *aPlayer);
 
 static void UpdateTreasuryDisplay(Player *aPlayer);
@@ -608,6 +609,38 @@ static void RepriceGrainScreen(Player *aPlayer)
  *   aPlayer                Player.
  */
 
+/*
+ * Parse a feed input string.  Returns the grain amount, or -1 for invalid.
+ * Handles: empty (default), '+' shortcuts, numeric input.
+ */
+
+static int ParseFeedInput(const char *input, int need, bool isPeople)
+{
+    if (input[0] == '\0')
+        return need;
+
+    if (IsAllPlus(input))
+    {
+        if (isPeople)
+        {
+            int plusCount = 0;
+            for (int c = 0; input[c] == '+'; c++)
+                plusCount++;
+            return need * (100 + 50 * plusCount) / 100 + 1;
+        }
+        else
+        {
+            return need * 3 / 2 + 1;
+        }
+    }
+
+    if (!IsValidNumericInput(input))
+        return -1;
+
+    return ParseNum(input);
+}
+
+
 static void FeedCountry(Player *aPlayer)
 {
     int   grainToFeed;
@@ -631,18 +664,13 @@ static void FeedCountry(Player *aPlayer)
         printw("Feed army of %s men (need %s, ENTER for default)? ",
                FmtNum(aPlayer->soldierCount), FmtNum(aPlayer->armyGrainNeed));
         getnstr(input, sizeof(input));
-        if (input[0] == '\0')
-            grainToFeed = aPlayer->armyGrainNeed;
-        else if (IsAllPlus(input))
-            grainToFeed = aPlayer->armyGrainNeed * 3 / 2 + 1;
-        else if (!IsValidNumericInput(input))
+        grainToFeed = ParseFeedInput(input, aPlayer->armyGrainNeed, false);
+        if (grainToFeed < 0)
         {
             CLEAR_MSG_AREA();
             ShowMessage("Enter a number of bushels, or + for 150%%");
             continue;
         }
-        else
-            grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)
         {
             CLEAR_MSG_AREA();
@@ -680,27 +708,13 @@ static void FeedCountry(Player *aPlayer)
         printw("Feed %s people (need %s, ENTER for default)? ",
                FmtNum(peopleCount), FmtNum(aPlayer->peopleGrainNeed));
         getnstr(input, sizeof(input));
-        if (input[0] == '\0')
-            grainToFeed = aPlayer->peopleGrainNeed;
-        else if (IsAllPlus(input))
-        {
-            /* Count '+' characters: each adds 50% of need. */
-            int plusCount = 0;
-            for (int c = 0; input[c] == '+'; c++)
-                plusCount++;
-            /* Round up, and ensure at least 1 above exact threshold
-             * so immigration triggers reliably with '+'. */
-            int exact = aPlayer->peopleGrainNeed * (100 + 50 * plusCount) / 100;
-            grainToFeed = exact + 1;
-        }
-        else if (!IsValidNumericInput(input))
+        grainToFeed = ParseFeedInput(input, aPlayer->peopleGrainNeed, true);
+        if (grainToFeed < 0)
         {
             CLEAR_MSG_AREA();
             ShowMessage("Enter a number of bushels, or + for 150%%, ++ for 200%%");
             continue;
         }
-        else
-            grainToFeed = ParseNum(input);
         if (grainToFeed > aPlayer->grain)
         {
             CLEAR_MSG_AREA();

@@ -42,7 +42,9 @@ static void RunBattle(Battle *aBattle);
 
 static void DisplayBattleResults(Battle *aBattle, bool humanAttacker);
 
-static void Sack(Player *aTargetPlayer);
+static SackResult ComputeSack(Player *aTargetPlayer);
+static void ApplySack(Player *aTargetPlayer, const SackResult &r);
+static void DisplaySack(const SackResult &r, bool humanAttacker);
 
 static void DrawAttackScreen(Player *aPlayer);
 
@@ -433,8 +435,8 @@ static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
         return false;
 
     /* Attack force threshold: don't send too few troops against a player.
-     * Scale the threshold based on the overall military landscape —
-     * when everyone has small armies, lower the bar. */
+     * Factor in allied strength — if allies would back you up, a smaller
+     * individual commitment is viable for coalition attacks. */
     if (aTargetPlayer != nullptr)
     {
         float avgSoldiers = ComputeAverageSoldierCount();
@@ -449,11 +451,18 @@ static bool CPUAttack(Player *aPlayer, Player *aTargetPlayer, int reserve)
         int minForce = static_cast<int>(estimatedMilitary * scaledRatio);
         if (minForce < CPU_MIN_ATTACK_FORCE)
             minForce = CPU_MIN_ATTACK_FORCE;
-        if (soldiersToSend < minForce)
+
+        /* Reduce minimum by allied strength: allies who hate the target
+         * and like us are effectively fighting alongside us. */
+        int ti = aTargetPlayer - playerList;
+        int alliedTroops = ComputeAlliedStrength(aPlayer, ti);
+        int effectiveForce = soldiersToSend + alliedTroops;
+
+        if (effectiveForce < minForce)
         {
-            GameLog("  Aborting attack: %d soldiers < minimum %d "
+            GameLog("  Aborting attack: %d+%d allied = %d < minimum %d "
                     "(ratio=%.0f%% avg=%.0f)\n",
-                    soldiersToSend, minForce,
+                    soldiersToSend, alliedTroops, effectiveForce, minForce,
                     scaledRatio * 100.0f, avgSoldiers);
             return false;
         }
@@ -561,123 +570,108 @@ static void GetSoldiersToAttack(Battle *aBattle)
  *   aBattle                Battle to run.
  */
 
-static void RunBattle(Battle *aBattle)
+/*
+ * Compute one round of battle.  Pure logic — no UI.
+ * Updates soldierCount, targetSoldierCount, landCaptured in the battle.
+ * Returns true if the battle is over.
+ */
+
+static bool ComputeBattleRound(Battle *aBattle)
 {
-    Player *player;
-    Player *targetPlayer;
-    int     soldierCount;
-    int     soldierEfficiency;
-    int     targetSoldierCount;
-    int     targetSoldierEfficiency;
-    int     targetLand;
-    int     soldierKillCount;
-    int     landCaptured = 0;
-    int     roundDelayUs;
-    bool    targetSerfs = false;
-    bool    targetOverrun = false;
-    bool    battleDone;
+    int soldierKillCount = (aBattle->soldierCount / CASUALTY_DIV_BASE) + 1;
+    if (aBattle->soldierCount > CASUALTY_THRESHOLD_MID)
+        soldierKillCount = (aBattle->soldierCount / CASUALTY_DIV_MID) + 1;
+    if (aBattle->soldierCount > CASUALTY_THRESHOLD_HIGH)
+        soldierKillCount = (aBattle->soldierCount / CASUALTY_DIV_HIGH) + 1;
 
-    /* Get battle information. */
-    player = aBattle->player;
-    targetPlayer = aBattle->targetPlayer;
-    soldierCount = aBattle->soldierCount;
-    soldierEfficiency = aBattle->soldierEfficiency;
-    targetSoldierCount = aBattle->targetSoldierCount;
-    targetSoldierEfficiency = aBattle->targetSoldierEfficiency;
-    targetLand = aBattle->targetLand;
-    targetSerfs = aBattle->targetSerfs;
-
-    /* Battle. */
-    landCaptured = 0;
-    battleDone = false;
-    while (!battleDone)
+    if (RandRange(aBattle->soldierEfficiency)
+        < RandRange(aBattle->targetSoldierEfficiency))
     {
-        /* Show soldiers remaining. */
-        clear();
-        getmaxyx(stdscr, winrows, wincols);
-        move(1, 0);
-        UISeparator();
-        UIColor(UIC_HEADING);
-        mvprintw(2, 41, "Soldiers Remaining:");
-        UIColorOff();
-        mvprintw(4, 13, "%s:", aBattle->soldierLabel);
-        mvprintw(5, 13, "%s:", aBattle->targetSoldierLabel);
-        mvprintw(4, 51, "%s", FmtNum(soldierCount));
-        mvprintw(5, 51, "%s", FmtNum(targetSoldierCount));
-        if (targetSerfs)
-        {
-            UIColor(UIC_BAD);
-            mvprintw(8, 0, "%s's serfs are forced to defend their country!",
-                     targetPlayer->country->name);
-            UIColorOff();
-        }
-        refresh();
-
-        /*
-         * Per-round delay scales with the square root of the smaller force,
-         * recalculated each round so the pace slows as forces dwindle.
-         *
-         *   delay = BATTLE_DELAY_MS * sqrt(smaller)
-         */
-        {
-            int smaller = soldierCount < targetSoldierCount
-                          ? soldierCount : targetSoldierCount;
-            if (smaller < 1) smaller = 1;
-            float delayScale = aBattle->targetSerfs ? 0.25f : 1.0f;
-            roundDelayUs = static_cast<int>(BATTLE_DELAY_MS * 1000.0 * delayScale * sqrt(static_cast<double>(smaller)));
-        }
-        if (!fastMode)
-            SleepUs(roundDelayUs);
-
-        /*
-         * Determine how many soldiers were killed in this round, who won the
-         * round, and how much land was captured.  Kill count is based on
-         * the attacker's force so battles against large serf armies don't
-         * end in a single round.
-         */
-        soldierKillCount = (soldierCount / CASUALTY_DIV_BASE) + 1;
-        if (soldierCount > CASUALTY_THRESHOLD_MID)
-            soldierKillCount = (soldierCount / CASUALTY_DIV_MID) + 1;
-        if (soldierCount > CASUALTY_THRESHOLD_HIGH)
-            soldierKillCount = (soldierCount / CASUALTY_DIV_HIGH) + 1;
-        if (RandRange(soldierEfficiency) < RandRange(targetSoldierEfficiency))
-        {
-            /* Player lost. */
-            soldierCount -= soldierKillCount;
-            if (soldierCount < 0)
-                soldierCount = 0;
-
-            /* Battle is done if all target land has been captured. */
-            if (landCaptured >= targetLand)
-                battleDone = true;
-        }
-        else
-        {
-            /* Player won. */
-            landCaptured +=   RandRange(26 * soldierKillCount)
-                            - RandRange(soldierKillCount + 5);
-            if (landCaptured < 0)
-                landCaptured = 0;
-            else if (landCaptured > targetLand)
-                landCaptured = targetLand;
-            targetSoldierCount -= soldierKillCount;
-            if (targetSoldierCount < 0)
-                targetSoldierCount = 0;
-        }
-
-        /* Keep battling until one army is defeated. */
-        if ((soldierCount == 0) || (targetSoldierCount == 0))
-            battleDone = true;
+        /* Attacker lost this round. */
+        aBattle->soldierCount -= soldierKillCount;
+        if (aBattle->soldierCount < 0)
+            aBattle->soldierCount = 0;
+    }
+    else
+    {
+        /* Attacker won this round — capture land, kill defenders. */
+        aBattle->landCaptured +=   RandRange(26 * soldierKillCount)
+                                 - RandRange(soldierKillCount + 5);
+        if (aBattle->landCaptured < 0)
+            aBattle->landCaptured = 0;
+        else if (aBattle->landCaptured > aBattle->targetLand)
+            aBattle->landCaptured = aBattle->targetLand;
+        aBattle->targetSoldierCount -= soldierKillCount;
+        if (aBattle->targetSoldierCount < 0)
+            aBattle->targetSoldierCount = 0;
     }
 
-    /* Update battle information. */
-    aBattle->soldierCount = soldierCount;
-    aBattle->targetSoldierCount = targetSoldierCount;
-    aBattle->landCaptured = landCaptured;
-    if (soldierCount > 0)
+    /* Battle ends when one side is eliminated or all land captured. */
+    return (aBattle->soldierCount == 0)
+        || (aBattle->targetSoldierCount == 0)
+        || (aBattle->landCaptured >= aBattle->targetLand);
+}
+
+
+/*
+ * Display one round of battle on screen.
+ */
+
+static void DisplayBattleRound(Battle *aBattle)
+{
+    clear();
+    getmaxyx(stdscr, winrows, wincols);
+    move(1, 0);
+    UISeparator();
+    UIColor(UIC_HEADING);
+    mvprintw(2, 41, "Soldiers Remaining:");
+    UIColorOff();
+    mvprintw(4, 13, "%s:", aBattle->soldierLabel);
+    mvprintw(5, 13, "%s:", aBattle->targetSoldierLabel);
+    mvprintw(4, 51, "%s", FmtNum(aBattle->soldierCount));
+    mvprintw(5, 51, "%s", FmtNum(aBattle->targetSoldierCount));
+    if (aBattle->targetSerfs && aBattle->targetPlayer)
+    {
+        UIColor(UIC_BAD);
+        mvprintw(8, 0, "%s's serfs are forced to defend their country!",
+                 aBattle->targetPlayer->country->name);
+        UIColorOff();
+    }
+    refresh();
+
+    /* Per-round delay scales with sqrt of the smaller force. */
+    int smaller = MIN(aBattle->soldierCount, aBattle->targetSoldierCount);
+    if (smaller < 1) smaller = 1;
+    float delayScale = aBattle->targetSerfs ? 0.25f : 1.0f;
+    int roundDelayUs = static_cast<int>(
+        BATTLE_DELAY_MS * 1000.0 * delayScale
+        * sqrt(static_cast<double>(smaller)));
+    if (!fastMode)
+        SleepUs(roundDelayUs);
+}
+
+
+/*
+ * Run the battle: display loop calls pure-logic rounds.
+ */
+
+static void RunBattle(Battle *aBattle)
+{
+    aBattle->landCaptured = 0;
+
+    while (true)
+    {
+        DisplayBattleRound(aBattle);
+        if (ComputeBattleRound(aBattle))
+            break;
+    }
+
+    /* Determine outcome. */
+    if (aBattle->soldierCount > 0)
     {
         aBattle->targetDefeated = true;
-        if (targetSerfs || (landCaptured >= targetLand))
+        if (aBattle->targetSerfs
+            || (aBattle->landCaptured >= aBattle->targetLand))
             aBattle->targetOverrun = true;
     }
 }
@@ -725,17 +719,11 @@ static void DisplayBattleResults(Battle *aBattle, bool humanAttacker)
                    targetPlayer->country->name);
             printw("All enemy nobles were summarily executed!\n\n\n");
             UIColorOff();
-            printw("The remaining enemy soldiers "
-                   "were imprisoned. All enemy serfs\n");
-            printw("have pledged oaths of fealty to "
-                   "you, and should now be consid-\n");
-            printw("ered to be your people too. All "
-                   "enemy merchants fled the coun-\n");
-            printw("try. Unfortunately, all enemy "
-                   "assets were sacked and destroyed\n");
-            printw("by your revengeful army in a "
-                   "drunken riot following the victory\n");
-            printw("celebration.\n");
+            printw("The remaining enemy soldiers were imprisoned.\n");
+            printw("All enemy serfs have pledged oaths of fealty to you.\n");
+            printw("All enemy merchants fled the country.\n");
+            printw("Unfortunately, all enemy assets were sacked and\n");
+            printw("destroyed by your army in a victory riot.\n");
         }
         else
         {
@@ -824,6 +812,9 @@ static void DisplayBattleResults(Battle *aBattle, bool humanAttacker)
                 printw("In your defeat you nevertheless "
                        "managed to capture %s acres.\n",
                        FmtNum(landCaptured));
+            else
+                printw("%s captured %s acres in defeat.\n",
+                       player->country->name, FmtNum(landCaptured));
         }
         else
         {
@@ -840,7 +831,11 @@ static void DisplayBattleResults(Battle *aBattle, bool humanAttacker)
         && !aBattle->targetOverrun
         && (landCaptured > (aBattle->targetLand / SACK_THRESHOLD_DIV)))
     {
-        Sack(targetPlayer);
+        {
+            SackResult sack = ComputeSack(targetPlayer);
+            ApplySack(targetPlayer, sack);
+            DisplaySack(sack, humanAttacker);
+        }
     }
 
     /* Wait for Enter if a human was involved or a country was destroyed. */
@@ -872,66 +867,69 @@ static void DisplayBattleResults(Battle *aBattle, bool humanAttacker)
  *   aTargetPlayer          Player to sack.
  */
 
-static void Sack(Player *aTargetPlayer)
+/*
+ * Compute sacking damage — pure logic, no UI.
+ */
+
+static SackResult ComputeSack(Player *aTargetPlayer)
 {
-    int  sackCount;
-
-    /* Sack serfs. */
+    SackResult r = {};
     if (aTargetPlayer->serfCount > 0)
-    {
-        sackCount = RandRange(aTargetPlayer->serfCount);
-        aTargetPlayer->serfCount -= sackCount;
-        printw(" %s enemy serfs were beaten and murdered by your troops!\n",
-               FmtNum(sackCount));
-    }
-
-    /* Sack marketplaces. */
+        r.serfsLost = RandRange(aTargetPlayer->serfCount);
     if (aTargetPlayer->marketplaceCount > 0)
-    {
-        sackCount = RandRange(aTargetPlayer->marketplaceCount);
-        aTargetPlayer->marketplaceCount -= sackCount;
-        printw(" %s enemy marketplaces were destroyed\n", FmtNum(sackCount));
-    }
-
-    /* Sack grain. */
+        r.marketplacesLost = RandRange(aTargetPlayer->marketplaceCount);
     if (aTargetPlayer->grain > 0)
-    {
-        sackCount = RandRange(aTargetPlayer->grain);
-        aTargetPlayer->grain -= sackCount;
-        printw(" %s bushels of enemy grain were burned\n", FmtNum(sackCount));
-    }
-
-    /* Sack grain mills. */
+        r.grainLost = RandRange(aTargetPlayer->grain);
     if (aTargetPlayer->grainMillCount > 0)
-    {
-        sackCount = RandRange(aTargetPlayer->grainMillCount);
-        aTargetPlayer->grainMillCount -= sackCount;
-        printw(" %s enemy grain mills were sabotaged\n", FmtNum(sackCount));
-    }
-
-    /* Sack foundries. */
+        r.grainMillsLost = RandRange(aTargetPlayer->grainMillCount);
     if (aTargetPlayer->foundryCount > 0)
-    {
-        sackCount = RandRange(aTargetPlayer->foundryCount);
-        aTargetPlayer->foundryCount -= sackCount;
-        printw(" %s enemy foundries were leveled\n", FmtNum(sackCount));
-    }
-
-    /* Sack shipyards. */
+        r.foundriesLost = RandRange(aTargetPlayer->foundryCount);
     if (aTargetPlayer->shipyardCount > 0)
-    {
-        sackCount = RandRange(aTargetPlayer->shipyardCount);
-        aTargetPlayer->shipyardCount -= sackCount;
-        printw(" %s enemy shipyards were over-run\n", FmtNum(sackCount));
-    }
-
-    /* Sack nobles. */
+        r.shipyardsLost = RandRange(aTargetPlayer->shipyardCount);
     if (aTargetPlayer->nobleCount > 2)
-    {
-        sackCount = RandRange(aTargetPlayer->nobleCount / 2);
-        aTargetPlayer->nobleCount -= sackCount;
-        printw(" %s enemy nobles were summarily executed\n", FmtNum(sackCount));
-    }
+        r.noblesLost = RandRange(aTargetPlayer->nobleCount / 2);
+    return r;
+}
+
+
+/*
+ * Apply sacking damage to the target player.
+ */
+
+static void ApplySack(Player *aTargetPlayer, const SackResult &r)
+{
+    aTargetPlayer->serfCount -= r.serfsLost;
+    aTargetPlayer->marketplaceCount -= r.marketplacesLost;
+    aTargetPlayer->grain -= r.grainLost;
+    aTargetPlayer->grainMillCount -= r.grainMillsLost;
+    aTargetPlayer->foundryCount -= r.foundriesLost;
+    aTargetPlayer->shipyardCount -= r.shipyardsLost;
+    aTargetPlayer->nobleCount -= r.noblesLost;
+}
+
+
+/*
+ * Display sacking results.
+ */
+
+static void DisplaySack(const SackResult &r, bool humanAttacker)
+{
+    if (r.serfsLost > 0)
+        printw(" %s serfs were beaten and murdered%s\n",
+               FmtNum(r.serfsLost),
+               humanAttacker ? " by your troops!" : ".");
+    if (r.marketplacesLost > 0)
+        printw(" %s marketplaces were destroyed\n", FmtNum(r.marketplacesLost));
+    if (r.grainLost > 0)
+        printw(" %s bushels of grain were burned\n", FmtNum(r.grainLost));
+    if (r.grainMillsLost > 0)
+        printw(" %s grain mills were sabotaged\n", FmtNum(r.grainMillsLost));
+    if (r.foundriesLost > 0)
+        printw(" %s foundries were leveled\n", FmtNum(r.foundriesLost));
+    if (r.shipyardsLost > 0)
+        printw(" %s shipyards were over-run\n", FmtNum(r.shipyardsLost));
+    if (r.noblesLost > 0)
+        printw(" %s nobles were summarily executed\n", FmtNum(r.noblesLost));
 }
 
 /*

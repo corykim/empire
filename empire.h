@@ -203,6 +203,22 @@ struct Battle
 
 
 /*
+ * Result of sacking a country.  Computed separately from display.
+ */
+
+struct SackResult
+{
+    int serfsLost;
+    int marketplacesLost;
+    int grainLost;
+    int grainMillsLost;
+    int foundriesLost;
+    int shipyardsLost;
+    int noblesLost;
+};
+
+
+/*
  * Forward declaration of the CPU strategy base class.  See cpu_strategy.h
  * for the full class hierarchy.
  */

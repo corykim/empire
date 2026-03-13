@@ -466,11 +466,36 @@ void BuySoldiers(Player *aPlayer)
                             FmtNum(soldierCount));
                 break;
             case SoldierCap::FOUNDRIES:
-                ShowMessage("Limited by foundries (%s). Build more to equip "
-                            "troops.\nYou can recruit %s soldiers.",
-                            FmtNum(aPlayer->foundryCount),
-                            FmtNum(soldierCount));
+            {
+                /* Determine whether more foundries or more population
+                 * would help more.  Equip cap = ratio × people.
+                 * If adding 1 foundry raises cap less than adding 100
+                 * serfs, population is the real bottleneck. */
+                int totalPeople = aPlayer->serfCount
+                                  + aPlayer->merchantCount
+                                  + aPlayer->nobleCount;
+                float ratio = EQUIP_RATIO_BASE
+                              + EQUIP_RATIO_PER_FOUNDRY
+                                * aPlayer->foundryCount;
+                int capFromFoundry = static_cast<int>(
+                    EQUIP_RATIO_PER_FOUNDRY * totalPeople);
+                int capFromPeople = static_cast<int>(ratio * 100);
+                if (capFromPeople > capFromFoundry)
+                    ShowMessage("Limited by equip ratio (%d%%). Your population "
+                                "of %s is too low —\ngrow your people to "
+                                "equip more troops. You can recruit %s.",
+                                static_cast<int>(ratio * 100),
+                                FmtNum(totalPeople),
+                                FmtNum(soldierCount));
+                else
+                    ShowMessage("Limited by foundries (%s, equip ratio %d%%). "
+                                "Build more\nfoundries to equip troops. "
+                                "You can recruit %s.",
+                                FmtNum(aPlayer->foundryCount),
+                                static_cast<int>(ratio * 100),
+                                FmtNum(soldierCount));
                 break;
+            }
             case SoldierCap::SERFS:
                 ShowMessage("Limited by serfs (%s available to train).\n"
                             "You can recruit %s soldiers.",
@@ -590,7 +615,7 @@ bool ValidateInvestment(Player *aPlayer, int investment, int investmentCount)
         }
     }
 
-    /* If investment is invalid, notify the player. */
+    /* If investment is invalid, notify the player at the call site. */
     if (!valid && (strlen(invalidMessage) > 0))
     {
         CLEAR_MSG_AREA();

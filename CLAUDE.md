@@ -132,7 +132,9 @@ CPU turns follow: Grain → Population → **Military Planning** → Investments
 6. **Error blend**: `w = w * (1 - err/100) + 1.0 * (err/100)` — computed from continuous `cpuDifficulty`
 7. **Attack probability**: `effectiveChance = aggression * maxWeight`, capped at 95%
 
-**Attack safeguards**: Minimum force threshold (25% of estimated target strength, `CPU_MIN_ATTACK_RATIO`). Garrison floor keeps 25% of army as defense. Nemesis exception: all-in allowed when target has diplomacy ≤ -1.9, 1.5× power advantage, and allied backing. Defensive turtling: skip attacks entirely when outmatched 3:1+ with <50 soldiers (`CPU_TURTLE_POWER_RATIO`).
+**Attack safeguards**: Minimum force threshold (25% of estimated target strength, `CPU_MIN_ATTACK_RATIO`), reduced by weighted allied strength for coalition attacks. Garrison floor keeps 25% of army as defense. Nemesis exception: all-in allowed when target has diplomacy ≤ -1.9, 1.5× power advantage, and allied backing. Retaliation reserve capped at 75% of army — always leaves 25% for offense. Defensive turtling: skip attacks entirely when outmatched 3:1+ with <50 soldiers.
+
+**Battle engine**: `ComputeBattleRound()` is pure logic (no UI). `DisplayBattleRound()` handles display. `ComputeSack()`/`ApplySack()`/`DisplaySack()` are separated similarly. `ParseFeedInput()` handles `+`/`++` feed shortcuts as pure parsing.
 
 CPUs attack multiple times per turn (up to `nobles/4 + 1`), re-evaluating targets and reserves after each battle.
 
@@ -168,6 +170,11 @@ Additional globals in `empire.h` / `empire.cpp`:
 - `Player::openMarketPct`, `openMillPct`, `openMilitaryPct` — opening capital allocation (set once at game start, sums to 100)
 
 ## Conventions
+
+### Design Principles
+- **No magic numbers** — derive all numeric literals from named `constexpr` constants in economy.h or diplomacy.h
+- **Prefer continuous functions over conditionals** — use smooth curves (quadratic, min/max, clamp) instead of if/else threshold gates for game balance
+- **Code blocks should read like stories** — extract long functions into aptly named helpers so the parent reads as a step-by-step narrative
 
 ### C++ Style
 - Use `true`/`false`, not `TRUE`/`FALSE`
