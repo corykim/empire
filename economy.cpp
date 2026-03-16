@@ -416,6 +416,7 @@ DeathCause CheckPlayerDeath(Player *aPlayer)
         {
             aPlayer->dead = true;
             cause = DEATH_STARVATION;
+            OnPlayerDeath(aPlayer - playerList);
             GameLog("  *** ASSASSINATED (starvation: %d died, %d%% of pop) ***\n",
                     aPlayer->diedStarvation, starvePct);
         }
@@ -426,6 +427,7 @@ DeathCause CheckPlayerDeath(Player *aPlayer)
     {
         aPlayer->dead = true;
         cause = DEATH_RANDOM;
+        OnPlayerDeath(aPlayer - playerList);
         GameLog("  *** DIED (random event) ***\n");
     }
 

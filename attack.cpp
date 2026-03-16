@@ -351,6 +351,7 @@ static void ApplyBattleResults(Battle *aBattle, Player *aPlayer,
         aTargetPlayer->dead = true;
         aTargetPlayer->grainForSale = 0;
         aTargetPlayer->grainPrice = 0.0;
+        OnPlayerDeath(aTargetPlayer - playerList);
     }
 }
 
@@ -639,15 +640,24 @@ static void DisplayBattleRound(Battle *aBattle)
     }
     refresh();
 
-    /* Per-round delay scales with sqrt of the smaller force. */
-    int smaller = MIN(aBattle->soldierCount, aBattle->targetSoldierCount);
-    if (smaller < 1) smaller = 1;
-    float delayScale = aBattle->targetSerfs ? 0.25f : 1.0f;
-    int roundDelayUs = static_cast<int>(
-        BATTLE_DELAY_MS * 1000.0 * delayScale
-        * sqrt(static_cast<double>(smaller)));
-    if (!fastMode)
-        SleepUs(roundDelayUs);
+    /* Per-round delay scales with sqrt of the smaller force.
+     * Press Enter to skip remaining delays and see results instantly. */
+    if (!fastMode && !aBattle->skipDelay)
+    {
+        int smaller = MIN(aBattle->soldierCount, aBattle->targetSoldierCount);
+        if (smaller < 1) smaller = 1;
+        float delayScale = aBattle->targetSerfs ? 0.25f : 1.0f;
+        int roundDelayMs = static_cast<int>(
+            BATTLE_DELAY_MS * delayScale
+            * sqrt(static_cast<double>(smaller)));
+
+        /* Wait for the delay, but allow Enter to skip. */
+        timeout(roundDelayMs);
+        int ch = getch();
+        timeout(-1);  /* Restore blocking mode. */
+        if (ch == '\n' || ch == '\r' || ch == KEY_ENTER)
+            aBattle->skipDelay = true;
+    }
 }
 
 

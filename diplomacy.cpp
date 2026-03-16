@@ -129,24 +129,56 @@ void DecayDiplomacy(Player *aPlayer)
                 aPlayer->diplomacy[j] + allyThreatDrift);
         }
 
-        /* Power suspicion: anyone significantly stronger than me is a
-         * threat regardless of their actions.  Quadratic in the power
-         * gap — small advantages create mild unease, large advantages
-         * create active hostility.  This is the proactive mechanism
-         * that makes CPUs gang up on a dominant player before it's
-         * too late, even if the leader has been peaceful.
-         *   suspicion = -(ratio - 1)² × DIPLOMACY_DECAY_RATE
-         * At 1.5×: -0.025/turn.  At 2×: -0.10/turn.  At 3×: -0.40/turn. */
+        /* Power suspicion: anyone stronger than me is a threat regardless
+         * of their actions.  Linear in the power gap so that even small
+         * advantages (1.1×) create meaningful pressure over time.
+         *   suspicion = -(ratio - 1) × DIPLOMACY_DECAY_RATE
+         * At 1.1×: -0.01/turn.  At 1.5×: -0.05/turn.  At 2×: -0.10/turn. */
         if (ratio > 1.0f)
         {
             float gap = ratio - 1.0f;
-            float suspicion = -gap * gap * DIPLOMACY_DECAY_RATE;
+            float suspicion = -gap * DIPLOMACY_DECAY_RATE;
             aPlayer->diplomacy[j] = ClampDiplomacy(
                 aPlayer->diplomacy[j] + suspicion);
         }
 
         aPlayer->diplomacy[j] *= (1.0f - decayRate);
     }
+}
+
+
+void OnPlayerDeath(int deadIdx)
+{
+    /* When a shared enemy dies, the alliances built around hating them
+     * lose their foundation.  For each pair of survivors: if both had
+     * negative diplomacy toward the dead player, halve any positive
+     * diplomacy they have toward each other.  Friendships forged in
+     * shared hatred don't survive the enemy's death. */
+    for (int i = 0; i < COUNTRY_COUNT; i++)
+    {
+        if (i == deadIdx || playerList[i].dead)
+            continue;
+        bool iHatedDead = (playerList[i].diplomacy[deadIdx] < 0.0f);
+
+        for (int j = i + 1; j < COUNTRY_COUNT; j++)
+        {
+            if (j == deadIdx || playerList[j].dead)
+                continue;
+            bool jHatedDead = (playerList[j].diplomacy[deadIdx] < 0.0f);
+
+            /* Both hated the dead player — their mutual friendship erodes. */
+            if (iHatedDead && jHatedDead)
+            {
+                if (playerList[i].diplomacy[j] > 0.0f)
+                    playerList[i].diplomacy[j] *= 0.5f;
+                if (playerList[j].diplomacy[i] > 0.0f)
+                    playerList[j].diplomacy[i] *= 0.5f;
+            }
+        }
+    }
+
+    GameLog("  Diplomacy reset: shared-enemy goodwill halved after %s died\n",
+            playerList[deadIdx].country->name);
 }
 
 

@@ -91,6 +91,8 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 - **Alliance solidarity**: Iterative convergence based on `preference = C→attacker - C→target`. If positive: target penalized (pile on). If negative: attacker penalized (punish aggressor). Scale halves each pass (0.3, 0.15, 0.075...) until shifts < 0.01. Victims are protected, aggressors are punished.
 - **Attacker self-penalty**: When a player attacks, their own diplomacy toward the target drops by `DIPLOMACY_CLAMP/4` (small raid) to full `DIPLOMACY_CLAMP` (major assault).
 - **Envy weighting**: All diplomacy changes weighted by `envyFactor = max(1.0, targetPower / observerPower)`. Power disparity dampens positive shifts and amplifies negative ones.
+- **Power suspicion**: Linear in power gap: `-(ratio - 1) × DIPLOMACY_DECAY_RATE`. At 1.1×: -0.01/turn. At 2×: -0.10/turn. Creates steady pressure toward anyone stronger regardless of their actions.
+- **Death of shared enemy**: `OnPlayerDeath()` — when a player dies, positive diplomacy between survivors who both had negative scores toward the dead player is halved. Alliances forged in shared hatred erode when the enemy is gone.
 - **Clamping**: All diplomacy scores clamped to `[-DIPLOMACY_CLAMP, +DIPLOMACY_CLAMP]` (±2.0) via `ClampDiplomacy()`. Diplomacy table logged at start of each year.
 
 **Tuning constants** (in `economy.h`):
@@ -98,6 +100,7 @@ CPU players track diplomacy scores (float) toward every other player. Scores dri
 
 **Key helpers:**
 - `MaxSoldiers()`, `MilitaryWeakness(soldiers)`, `DiplomacyAttackWeight(diplomacy, soldiers)` — shared building blocks
+- `OnPlayerDeath(deadIdx)` — erodes shared-enemy alliances when a player dies
 - `PredictThirdPartyShift(observer, target, attacker)` — used by both `UpdateDiplomacyAfterTurn` and `SimulateAttackOutcome`
 - `ComputePlayerPower(player)` — composite score using anticipated revenue (`ComputeExpectedRevenue` at current taxes, weather-averaged) / 50 + soldiers + land/50 + treasury/500 + merchants/5 + nobles×2 + marketplaces + foundries×2 + shipyards×3 + grain/1000. Detects economic threats immediately when investments are built.
 - `ComputeRetaliationReserve(player)` — net threat from scores × soldiers, reduced by allies
@@ -134,7 +137,7 @@ CPU turns follow: Grain → Population → **Military Planning** → Investments
 
 **Attack safeguards**: Minimum force threshold (25% of estimated target strength, `CPU_MIN_ATTACK_RATIO`), reduced by weighted allied strength for coalition attacks. Garrison floor keeps 25% of army as defense. Nemesis exception: all-in allowed when target has diplomacy ≤ -1.9, 1.5× power advantage, and allied backing. Retaliation reserve capped at 75% of army — always leaves 25% for offense. Defensive turtling: skip attacks entirely when outmatched 3:1+ with <50 soldiers.
 
-**Battle engine**: `ComputeBattleRound()` is pure logic (no UI). `DisplayBattleRound()` handles display. `ComputeSack()`/`ApplySack()`/`DisplaySack()` are separated similarly. `ParseFeedInput()` handles `+`/`++` feed shortcuts as pure parsing.
+**Battle engine**: `ComputeBattleRound()` is pure logic (no UI). `DisplayBattleRound()` handles display with interruptible delays — pressing Enter sets `Battle::skipDelay` to show remaining rounds instantly. `ComputeSack()`/`ApplySack()`/`DisplaySack()` are separated similarly. `ParseFeedInput()` handles `+`/`++` feed shortcuts as pure parsing.
 
 CPUs attack multiple times per turn (up to `nobles/4 + 1`), re-evaluating targets and reserves after each battle.
 

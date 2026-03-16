@@ -199,6 +199,7 @@ struct Battle
     int                     landCaptured;
     bool                    targetDefeated;
     bool                    targetOverrun;
+    bool                    skipDelay;
 };
 
 

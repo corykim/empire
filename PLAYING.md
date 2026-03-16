@@ -174,7 +174,7 @@ Usable land is further capped by two constraints:
 
 ### Combat
 
-Each battle round, the game rolls the attacker's army efficiency against the defender's. The side that loses the roll takes casualties. When the attacker wins a round, they also capture land proportional to the casualties inflicted.
+Each battle round, the game rolls the attacker's army efficiency against the defender's. The side that loses the roll takes casualties. When the attacker wins a round, they also capture land proportional to the casualties inflicted. Press **Enter** during a battle to skip the remaining delays and see results instantly.
 
 **Casualties per round** scale with the attacker's army size:
 - Under 200 soldiers: ~1/15 of the force per round
@@ -217,7 +217,8 @@ CPU players track a **diplomacy score** toward every other player, ranging from 
 - **Peace**: Each turn you don't attack, all CPUs increase diplomacy toward you by a small amount. Over many turns, this builds up to moderate goodwill (~0.5).
 - **Direct attack**: If you attack a CPU, their diplomacy toward you drops proportional to the land you captured — a small raid barely dents relations, but taking 20% or more of their land triggers the maximum penalty. Diplomacy scores are clamped to the range [-2, +2].
 - **Third-party effects**: If you attack a country that a CPU dislikes, that CPU likes you more. If you attack someone they like, they like you less — especially if the target is militarily weak.
-- **Decay**: All scores drift toward zero over time. Old grudges fade; old friendships erode.
+- **Decay**: All scores drift toward zero over time. Old grudges fade; old friendships erode. Power suspicion creates a steady diplomacy drain toward anyone stronger — linear in the power gap so even small advantages create pressure over time.
+- **Death of a shared enemy**: When a player dies, alliances forged from shared hatred lose their foundation. Positive diplomacy between survivors who both disliked the dead player is halved.
 - **Treaty period**: Peace bonuses don't accumulate during the treaty period — peace is mandatory, so it earns no goodwill.
 
 **How diplomacy affects CPU behavior:**

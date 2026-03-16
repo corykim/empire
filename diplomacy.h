@@ -71,6 +71,17 @@ void DecayDiplomacy(Player *aPlayer);
 
 
 /*
+ * Called when a player dies.  Erodes positive diplomacy between surviving
+ * players that was built from shared hostility toward the dead player.
+ * "Our shared enemy is gone — what do we have in common now?"
+ *
+ *   deadIdx                Index of the player who just died.
+ */
+
+void OnPlayerDeath(int deadIdx);
+
+
+/*
  * Update diplomacy scores after a player finishes their turn.
  * If the player attacked no one, all CPUs increase diplomacy toward them.
  * If the player attacked, diplomacy is adjusted based on who was attacked.

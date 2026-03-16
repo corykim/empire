@@ -197,7 +197,7 @@ Per-round battle delay is recalculated each round based on the current smaller f
 delay = 37.5ms * sqrt(smaller_force)
 ```
 
-This creates a natural rhythm: large armies clash quickly, but as forces dwindle the pace slows and each round becomes more dramatic. Kill rates scale with attacker army size so battles resolve in a reasonable number of rounds. Skipped entirely with `--fast`.
+This creates a natural rhythm: large armies clash quickly, but as forces dwindle the pace slows and each round becomes more dramatic. Kill rates scale with attacker army size so battles resolve in a reasonable number of rounds. Press **Enter** during a battle to skip all remaining delays and see results instantly. Skipped entirely with `--fast`.
 
 ### Soldier Purchasing
 
